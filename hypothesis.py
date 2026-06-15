@@ -53,6 +53,7 @@ Be specific and maintain scientific rigor. Do not fabricate data points not pres
 
 **Citation rules:**
 - Cite evidence inline using the [Ref N] tags provided in the context (e.g., "strong GWAS association [Ref 3]").
+- Use the abstract summaries in the "Recent Literature" section to support mechanistic reasoning — quote or paraphrase key findings from abstracts where relevant.
 - At the end of the report, add a "## References" section that lists every [Ref N] you cited, copied verbatim from the References block in the context.
 - Do not invent reference numbers not present in the context.
 """
@@ -110,6 +111,7 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と創薬仮説
 
 **引用のルール:**
 - コンテキスト内の [Ref N] タグを使って根拠を本文中に引用してください（例: 「強いGWAS関連性が確認されている [Ref 3]」）。
+- 「Recent Literature」セクションのアブストラクト要約を積極的に活用し、メカニズムの考察や治療仮説の根拠として引用・要約してください。
 - レポートの末尾に「## 参考文献」セクションを追加し、引用した [Ref N] をコンテキストの References ブロックからそのまま転記してください。
 - コンテキストに存在しない参照番号を創作しないでください。
 """

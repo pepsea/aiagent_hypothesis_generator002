@@ -48,7 +48,7 @@ def collect_all(
             print(f"  [+] {msg}")
 
     tasks = {
-        "pubmed":       lambda: pubmed.search_pubmed(gene, disease, max_results=5),
+        "pubmed":       lambda: pubmed.search_pubmed(gene, disease, max_results=8),
         "opentargets":  lambda: opentargets.get_target_disease_evidence(
                             gene, disease, gene_id=gene_id, disease_id=disease_id),
         "uniprot":      lambda: uniprot.get_protein_info(gene),
@@ -303,16 +303,17 @@ def build_llm_context(aggregated: dict) -> str:
     # ── Literature ─────────────────────────────────────────────────────────
     papers = ev.get("pubmed") or []
     if papers:
-        lines = []
+        paper_blocks = []
         for p in papers[:5]:
-            pmid    = p.get("pmid", "")
-            title   = p.get("title", "")
-            journal = p.get("journal", "")
-            year    = p.get("year", "")
-            authors = p.get("authors", [])
-            url     = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+            pmid     = p.get("pmid", "")
+            title    = p.get("title", "")
+            journal  = p.get("journal", "")
+            year     = p.get("year", "")
+            authors  = p.get("authors", [])
+            abstract = (p.get("abstract") or "").strip()
+            url      = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
 
-            # Vancouver / NLM format
+            # Vancouver / NLM format citation
             if authors:
                 author_str = ", ".join(authors[:3])
                 if len(authors) > 3:
@@ -326,10 +327,20 @@ def build_llm_context(aggregated: dict) -> str:
                 + url
             )
             ref = add_ref(citation)
-            lines.append(
-                f"  - [{year}] {title[:80]} ({journal[:40]}) {ref}"
+
+            # アブストラクトを 600 字で切り詰め（LLMへのコンテキスト量を制御）
+            abstract_snippet = abstract[:600] + ("..." if len(abstract) > 600 else "") \
+                               if abstract else "(Abstract not available)"
+
+            paper_blocks.append(
+                f"### {ref} [{year}] {title}\n"
+                f"**Authors:** {author_str}  |  **Journal:** {journal}\n\n"
+                f"**Abstract summary:**\n{abstract_snippet}\n"
             )
-        sections.append(f"## Recent Literature (PubMed)\n" + "\n".join(lines) + "\n")
+        sections.append(
+            "## Recent Literature (PubMed) — with abstracts\n\n"
+            + "\n".join(paper_blocks)
+        )
 
     # ── Reference list ─────────────────────────────────────────────────────
     if refs:
