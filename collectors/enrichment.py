@@ -8,7 +8,7 @@ import requests
 
 GPROFILER_URL = "https://biit.cs.ut.ee/gprofiler/api/gost/profile/"
 
-SOURCES = ["GO:BP", "GO:MF", "GO:CC", "KEGG", "REAC", "WP"]
+SOURCES = ["GO:BP", "GO:MF", "GO:CC", "REAC", "WP"]
 
 
 def run_enrichment(
