@@ -87,21 +87,27 @@ def build_llm_context(aggregated: dict) -> str:
         f"(Each evidence item has a [Ref N] tag — cite these in your report)\n"
     ]
 
-    # Numbered reference registry: ref_id -> {source, id, url, label}
-    refs: list[dict] = []
+    # Numbered reference registry; each entry holds a fully-formatted citation string.
+    refs: list[str] = []
 
-    def add_ref(source: str, label: str, url: str = "", ref_id: str = "") -> str:
-        """Register a reference and return its [Ref N] tag."""
+    def add_ref(citation: str) -> str:
+        """Register a formatted citation and return its [Ref N] tag."""
         n = len(refs) + 1
-        refs.append({"n": n, "source": source, "id": ref_id, "url": url, "label": label})
+        refs.append(citation)
         return f"[Ref {n}]"
 
     # ── Gene/Protein info ──────────────────────────────────────────────────
     uni = ev.get("uniprot") or {}
     if uni and "error" not in uni:
         uniprot_id = uni.get("uniprot_id", gene)
-        uniprot_url = f"https://www.uniprot.org/uniprotkb/{uniprot_id}" if uniprot_id else ""
-        ref = add_ref("UniProt", f"{gene} protein entry", uniprot_url, uniprot_id)
+        url = f"https://www.uniprot.org/uniprotkb/{uniprot_id}" if uniprot_id else \
+              "https://www.uniprot.org/"
+        citation = (
+            f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
+            f"Nucleic Acids Res. 2023;51(D1):D523-D531. "
+            f"Entry: {gene} ({uniprot_id}). {url}"
+        )
+        ref = add_ref(citation)
         sections.append(
             f"## Gene/Protein Information {ref}\n"
             f"- Protein: {uni.get('protein_name', 'N/A')}\n"
@@ -118,9 +124,16 @@ def build_llm_context(aggregated: dict) -> str:
         efo  = ot.get("disease_id", "")
         ot_url = (
             f"https://platform.opentargets.org/evidence/{ensg}/{efo}"
-            if ensg and efo else ""
+            if ensg and efo else "https://platform.opentargets.org/"
         )
-        ref = add_ref("OpenTargets", f"{gene}×{disease} association", ot_url, f"{ensg}/{efo}")
+        citation = (
+            f"Ochoa D, et al. Open Targets Platform: supporting systematic "
+            f"drug-target identification and prioritisation. "
+            f"Nucleic Acids Res. 2021;49(D1):D1302-D1310. "
+            f"Target-Disease: {gene} ({ensg}) × {ot.get('disease_label', disease)} ({efo}). "
+            f"{ot_url}"
+        )
+        ref = add_ref(citation)
         score = ot.get("association_score")
         score_str = f"{score:.3f}" if score is not None else "Not found"
         dt_scores = ot.get("datatype_scores", {})
@@ -138,9 +151,21 @@ def build_llm_context(aggregated: dict) -> str:
         lines = []
         for h in gwas_hits[:5]:
             study_id = h.get("study_id", "")
+            pub_date = h.get("pub_date", "")
+            first_author = h.get("first_author", "")
+            year = pub_date[:4] if pub_date else ""
             url = f"https://www.ebi.ac.uk/gwas/studies/{study_id}" if study_id else \
                   "https://www.ebi.ac.uk/gwas/"
-            ref = add_ref("GWAS Catalog", h.get("trait", ""), url, study_id)
+            author_str = f"{first_author}, et al. " if first_author else ""
+            year_str   = f"{year}. " if year else ""
+            citation = (
+                f"{author_str}GWAS Catalog Study {study_id}: {h.get('trait','')}. "
+                f"{year_str}"
+                f"Buniello A, et al. The NHGRI-EBI GWAS Catalog. "
+                f"Nucleic Acids Res. 2019;47(D1):D1005-D1012. "
+                f"{url}"
+            )
+            ref = add_ref(citation)
             snps = ", ".join(h.get("snps", [])[:2])
             lines.append(
                 f"  - {h['trait']} | p={h['p_value']} | OR/Beta={h['or_beta']} "
@@ -156,7 +181,15 @@ def build_llm_context(aggregated: dict) -> str:
             var_id = str(v.get("uid", ""))
             url = f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{var_id}/" if var_id else \
                   f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}"
-            ref = add_ref("ClinVar", v.get("title", "")[:60], url, var_id)
+            citation = (
+                f"Landrum MJ, et al. ClinVar: improvements to accessing data. "
+                f"Nucleic Acids Res. 2020;48(D1):D835-D844. "
+                f"Variant: {v.get('title','')[:80]} "
+                f"[Variation ID: {var_id}]. "
+                f"Clinical significance: {v.get('clinical_significance','')}. "
+                f"{url}"
+            )
+            ref = add_ref(citation)
             lines.append(
                 f"  - {v['title'][:70]} | {v['clinical_significance']} "
                 f"| Condition: {v['condition']} {ref}"
@@ -177,10 +210,19 @@ def build_llm_context(aggregated: dict) -> str:
             chembl_id = d.get("chembl_id", "")
             url = f"https://www.ebi.ac.uk/chembl/compound_report_card/{chembl_id}/" \
                   if chembl_id else "https://www.ebi.ac.uk/chembl/"
-            ref = add_ref("ChEMBL", name, url, chembl_id)
             phase = d.get("max_phase") or d.get("phase")
-            mech  = d.get("mechanism", d.get("mechanism_of_action", "N/A"))
-            lines.append(f"  - {name} | Phase: {phase} | Mechanism: {mech} {ref}")
+            mech  = d.get("mechanism", d.get("mechanism_of_action", ""))
+            citation = (
+                f"Mendez D, et al. ChEMBL: towards direct deposition of bioassay data. "
+                f"Nucleic Acids Res. 2019;47(D1):D930-D940. "
+                f"Compound: {name}"
+                + (f" ({chembl_id})" if chembl_id else "")
+                + (f". Max clinical phase: {phase}" if phase else "")
+                + (f". Mechanism: {mech}" if mech else "")
+                + f". {url}"
+            )
+            ref = add_ref(citation)
+            lines.append(f"  - {name} | Phase: {phase} | Mechanism: {mech or 'N/A'} {ref}")
         sections.append(
             f"## Existing Drugs / Clinical Candidates Targeting {gene}\n"
             + "\n".join(lines) + "\n"
@@ -194,7 +236,13 @@ def build_llm_context(aggregated: dict) -> str:
     interactions = ev.get("intact") or []
     if interactions:
         ia_url = f"https://www.ebi.ac.uk/intact/search?query={gene}"
-        ref = add_ref("IntAct", f"{gene} interaction network", ia_url, gene)
+        citation = (
+            f"Orchard S, et al. The MIntAct project — IntAct as a common curation platform "
+            f"for 11 molecular interaction databases. "
+            f"Nucleic Acids Res. 2014;42(D1):D358-D363. "
+            f"Query gene: {gene}. {ia_url}"
+        )
+        ref = add_ref(citation)
         partners = []
         for ix in interactions[:10]:
             partners.extend(ix.get("partners", []))
@@ -214,7 +262,12 @@ def build_llm_context(aggregated: dict) -> str:
             f"{e['reaction']}({e['count']})" for e in events[:3]
         )
     pc_url = f"https://pubchem.ncbi.nlm.nih.gov/#query={gene}&input_type=gene"
-    ref_pc = add_ref("PubChem BioAssay", f"{gene} bioassay data", pc_url, gene)
+    citation_pc = (
+        f"Kim S, et al. PubChem 2023 update. "
+        f"Nucleic Acids Res. 2023;51(D1):D1373-D1380. "
+        f"Gene bioassay query: {gene}. {pc_url}"
+    )
+    ref_pc = add_ref(citation_pc)
     sections.append(
         f"## Toxicity / Safety Signals\n"
         f"- PubChem BioAssay {ref_pc}: {pb.get('assay_count', 0)} assays\n"
@@ -227,21 +280,35 @@ def build_llm_context(aggregated: dict) -> str:
     if papers:
         lines = []
         for p in papers[:5]:
-            pmid = p.get("pmid", "")
-            url  = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
-            ref  = add_ref("PubMed", p.get("title", "")[:80], url, pmid)
+            pmid    = p.get("pmid", "")
+            title   = p.get("title", "")
+            journal = p.get("journal", "")
+            year    = p.get("year", "")
+            authors = p.get("authors", [])
+            url     = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+
+            # Vancouver / NLM format
+            if authors:
+                author_str = ", ".join(authors[:3])
+                if len(authors) > 3:
+                    author_str += ", et al"
+            else:
+                author_str = "[Author(s) not available]"
+            citation = (
+                f"{author_str}. {title} "
+                f"{journal}. {year}. "
+                + (f"PMID: {pmid}. " if pmid else "")
+                + url
+            )
+            ref = add_ref(citation)
             lines.append(
-                f"  - [{p['year']}] {p['title'][:80]} ({p['journal'][:40]}) {ref}"
+                f"  - [{year}] {title[:80]} ({journal[:40]}) {ref}"
             )
         sections.append(f"## Recent Literature (PubMed)\n" + "\n".join(lines) + "\n")
 
     # ── Reference list ─────────────────────────────────────────────────────
     if refs:
-        ref_lines = []
-        for r in refs:
-            url_part = f" — {r['url']}" if r["url"] else ""
-            id_part  = f" (ID: {r['id']})" if r["id"] else ""
-            ref_lines.append(f"[Ref {r['n']}] {r['source']}: {r['label']}{id_part}{url_part}")
+        ref_lines = [f"[Ref {i+1}] {cite}" for i, cite in enumerate(refs)]
         sections.append(
             "## References\n" + "\n".join(ref_lines) + "\n\n"
             "(When writing the report, cite evidence using [Ref N] inline.)\n"

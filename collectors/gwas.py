@@ -23,15 +23,24 @@ def get_gwas_associations(gene_symbol: str, disease_query: str = None) -> list[d
         or_beta = assoc.get("orPerCopyNum") or assoc.get("betaNum")
         snps = [s.get("rsId", "") for s in assoc.get("snps", [])]
 
+        # study metadata for citation
+        study = assoc.get("study") or {}
+        study_id     = study.get("accessionId", "")
+        pub_date     = study.get("publicationDate", "")
+        first_author = study.get("author", {}).get("fullname", "") if study.get("author") else ""
+
         if disease_query and disease_query.lower() not in trait.lower():
             continue
 
         results.append({
-            "trait": trait,
-            "p_value": pval,
-            "or_beta": or_beta,
-            "snps": snps,
+            "trait":                trait,
+            "p_value":              pval,
+            "or_beta":              or_beta,
+            "snps":                 snps,
             "risk_allele_frequency": assoc.get("riskFrequency"),
+            "study_id":             study_id,
+            "pub_date":             pub_date,
+            "first_author":         first_author,
         })
 
     return results
