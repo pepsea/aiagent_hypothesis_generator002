@@ -149,117 +149,183 @@ def run_network_enrichment(
 # 3. 可視化 (pyvis)
 # ──────────────────────────────────────────────────────────────
 
-def visualize_network_pyvis(
+def visualize_network_plotly(
     G: "nx.Graph",
     gene_symbol: str,
     enrichment: dict | None = None,
-    output_path: str = "reports/ppi_network.html",
-    max_nodes: int = 30,
-) -> str | None:
-    """pyvis でインタラクティブな PPI ネットワーク HTML を生成する。
+    max_nodes: int = 50,
+) -> "go.Figure | None":
+    """Plotly でインタラクティブな PPI ネットワーク図を生成する。
 
-    max_nodes: 中心ノード + 上位 N 件のインタラクター（エッジ重みでソート）に絞る。
+    Jupyter でインライン表示可能。pyvis 不要。
+    max_nodes: 中心ノード + 上位 N 件（エッジ重み順）に絞る。
     Returns:
-        生成した HTML ファイルのパス、または pyvis 未インストール時 None
+        plotly Figure、または依存ライブラリ未インストール時 None
     """
     try:
-        from pyvis.network import Network
+        import plotly.graph_objects as go
     except ImportError:
-        print("  [Pyvis] 未インストール: pip install pyvis")
+        print("  [Plotly] 未インストール: pip install plotly")
         return None
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     center = gene_symbol.upper()
 
-    # ── 表示ノードを上位 max_nodes 件に絞る ──────────────────────────────
+    # ── 上位 max_nodes 件に絞ったサブグラフ ─────────────────────────────
     neighbors = sorted(
         G.neighbors(center),
         key=lambda n: G.edges[center, n].get("weight", 1),
         reverse=True,
     )[:max_nodes]
-    visible_nodes = {center} | set(neighbors)
-    subG = G.subgraph(visible_nodes)
+    visible = {center} | set(neighbors)
+    subG = G.subgraph(visible)
 
-    n_total  = G.number_of_nodes()
-    n_shown  = subG.number_of_nodes()
-    n_hidden = n_total - n_shown
-    if n_hidden > 0:
-        print(f"  表示: {n_shown} ノード（全 {n_total} 件中。上位 {max_nodes} インタラクターを表示）")
+    n_total = G.number_of_nodes()
+    n_shown = subG.number_of_nodes()
+    if n_total > n_shown:
+        print(f"  表示: {n_shown} ノード（全 {n_total} 件中、上位 {max_nodes} を表示）")
 
-    # ── エンリッチメント上位パスウェイでノード色分け ───────────────────
-    pathway_gene_map: dict[str, str] = {}
+    # ── レイアウト計算 ───────────────────────────────────────────────────
+    pos = nx.spring_layout(subG, seed=42, k=2.5 / (n_shown ** 0.5))
+
+    # ── エンリッチメント上位5パスウェイでノード色分け ────────────────────
+    PATHWAY_PALETTE = ["#FFD700", "#FF8C00", "#7B68EE", "#20B2AA", "#FF69B4"]
+    pathway_gene_map: dict[str, tuple[str, str]] = {}  # node -> (color, term_name)
     if enrichment:
-        palette = ["#FFD700", "#FF8C00", "#7B68EE", "#20B2AA", "#FF69B4"]
         top_terms = enrichment.get("results", [])[:5]
         for i, term in enumerate(top_terms):
-            color = palette[i % len(palette)]
+            clr = PATHWAY_PALETTE[i % len(PATHWAY_PALETTE)]
             for g in term.get("genes", []):
                 if g.upper() not in pathway_gene_map:
-                    pathway_gene_map[g.upper()] = color
+                    pathway_gene_map[g.upper()] = (clr, term["term_name"][:40])
 
-    # ── pyvis 設定（軽量化: 物理演算を安定後に停止） ─────────────────────
-    net = Network(
-        height="600px", width="100%",
-        bgcolor="#1a1a2e", font_color="#eee",
-        notebook=True, cdn_resources="in_line",
+    DB_COLOR = {"IntAct": "#4ECDC4", "SIGNOR": "#45B7D1", "BioGRID": "#96CEB4"}
+
+    # ── エッジトレース ───────────────────────────────────────────────────
+    edge_x, edge_y = [], []
+    for src, tgt in subG.edges():
+        x0, y0 = pos[src]
+        x1, y1 = pos[tgt]
+        edge_x += [x0, x1, None]
+        edge_y += [y0, y1, None]
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        mode="lines",
+        line=dict(width=0.8, color="#888"),
+        hoverinfo="none",
+        showlegend=False,
     )
-    net.set_options("""
-    {
-      "physics": {
-        "enabled": true,
-        "solver": "forceAtlas2Based",
-        "forceAtlas2Based": {
-          "gravitationalConstant": -50,
-          "centralGravity": 0.01,
-          "springLength": 100,
-          "springConstant": 0.08,
-          "damping": 0.4,
-          "avoidOverlap": 0.5
-        },
-        "stabilization": {
-          "enabled": true,
-          "iterations": 150,
-          "updateInterval": 50
-        },
-        "maxVelocity": 50,
-        "minVelocity": 1.5
-      },
-      "interaction": {
-        "hover": true,
-        "tooltipDelay": 100
-      }
+
+    # ── ノードトレース（グループ別: center / pathway / db / default） ────
+    groups: dict[str, dict] = {
+        "center":  {"x": [], "y": [], "text": [], "hover": [], "color": "#FF6B6B", "size": 24, "symbol": "star"},
     }
-    """)
+    for i, (clr, _) in enumerate(dict.fromkeys(pathway_gene_map.values())):
+        groups.setdefault(f"pathway_{i}", {"x": [], "y": [], "text": [], "hover": [], "color": clr, "size": 16, "symbol": "circle"})
+    for db, clr in DB_COLOR.items():
+        groups.setdefault(f"db_{db}", {"x": [], "y": [], "text": [], "hover": [], "color": clr, "size": 12, "symbol": "circle"})
+    groups["default"] = {"x": [], "y": [], "text": [], "hover": [], "color": "#AAAAAA", "size": 10, "symbol": "circle"}
 
-    for node, attrs in subG.nodes(data=True):
+    def _assign(node):
         if node == center:
-            color = "#FF6B6B"
-            size  = 32
-        elif node in pathway_gene_map:
-            color = pathway_gene_map[node]
-            size  = 18
-        else:
-            color = attrs.get("color", "#4ECDC4")
-            size  = 14
+            return "center"
+        if node in pathway_gene_map:
+            clr, _ = pathway_gene_map[node]
+            for i, (c, _) in enumerate(dict.fromkeys(pathway_gene_map.values())):
+                if c == clr:
+                    return f"pathway_{i}"
+        db = subG.nodes[node].get("db", "").split(",")[0]
+        if db in DB_COLOR:
+            return f"db_{db}"
+        return "default"
 
-        db    = attrs.get("db", "")
-        title = f"<b>{node}</b><br>DB: {db}"
-        net.add_node(node, label=node, color=color, size=size, title=title)
-
-    for src, tgt, attrs in subG.edges(data=True):
-        weight = attrs.get("weight", 1)
-        db     = attrs.get("db", "")
-        effect = attrs.get("effect", "")
-        net.add_edge(
-            src, tgt,
-            title=f"DB: {db}<br>Effect: {effect}",
-            width=max(1, min(weight * 1.5, 6)),
-            color={"color": "#666", "highlight": "#FFF"},
+    for node in subG.nodes():
+        x, y = pos[node]
+        db = subG.nodes[node].get("db", "")
+        degree = subG.degree(node)
+        pw_info = pathway_gene_map.get(node, (None, ""))
+        hover = (
+            f"<b>{node}</b><br>"
+            f"DB: {db}<br>"
+            f"Degree: {degree}"
+            + (f"<br>Pathway: {pw_info[1]}" if pw_info[1] else "")
         )
+        grp = _assign(node)
+        if grp not in groups:
+            grp = "default"
+        groups[grp]["x"].append(x)
+        groups[grp]["y"].append(y)
+        groups[grp]["text"].append(node)
+        groups[grp]["hover"].append(hover)
 
-    net.save_graph(output_path)
-    return output_path
+    # ── legend ラベルマッピング ──────────────────────────────────────────
+    legend_labels = {"center": f"⬤ {gene_symbol} (target)"}
+    if enrichment:
+        top_terms = enrichment.get("results", [])[:5]
+        seen_colors: dict[str, str] = {}
+        for i, (clr, term) in enumerate(dict.fromkeys(pathway_gene_map.values())):
+            if clr not in seen_colors:
+                seen_colors[clr] = top_terms[i]["term_name"][:35] if i < len(top_terms) else clr
+                legend_labels[f"pathway_{i}"] = f"⬤ {seen_colors[clr]}"
+    for db in DB_COLOR:
+        legend_labels[f"db_{db}"] = f"⬤ {db}"
+    legend_labels["default"] = "⬤ other"
+
+    node_traces = []
+    for grp, data in groups.items():
+        if not data["x"]:
+            continue
+        node_traces.append(go.Scatter(
+            x=data["x"], y=data["y"],
+            mode="markers+text",
+            marker=dict(
+                size=data["size"],
+                color=data["color"],
+                symbol=data["symbol"],
+                line=dict(width=1, color="#222"),
+            ),
+            text=data["text"],
+            textposition="top center",
+            textfont=dict(size=9, color="#EEE"),
+            hovertext=data["hover"],
+            hoverinfo="text",
+            name=legend_labels.get(grp, grp),
+        ))
+
+    fig = go.Figure(
+        data=[edge_trace] + node_traces,
+        layout=go.Layout(
+            title=dict(
+                text=f"PPI Network — {gene_symbol}  "
+                     f"({n_shown} nodes / {subG.number_of_edges()} edges)",
+                font=dict(size=15, color="#EEE"),
+            ),
+            showlegend=True,
+            legend=dict(
+                font=dict(color="#EEE", size=10),
+                bgcolor="rgba(0,0,0,0.4)",
+                bordercolor="#555",
+                borderwidth=1,
+            ),
+            hovermode="closest",
+            paper_bgcolor="#1a1a2e",
+            plot_bgcolor="#1a1a2e",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            margin=dict(l=20, r=20, t=50, b=20),
+            height=600,
+        ),
+    )
+    return fig
+
+
+# 後方互換エイリアス（旧 pyvis 版が呼ばれた場合でもエラーにならないように）
+def visualize_network_pyvis(G, gene_symbol, enrichment=None, output_path="reports/ppi_network.html", max_nodes=30):
+    print("⚠ visualize_network_pyvis は非推奨です。visualize_network_plotly を使用してください。")
+    fig = visualize_network_plotly(G, gene_symbol, enrichment, max_nodes)
+    if fig is not None:
+        fig.show()
+    return None
 
 
 # ──────────────────────────────────────────────────────────────
