@@ -1,7 +1,31 @@
 """Aggregate multi-source evidence into a structured context for LLM."""
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collectors import pubmed, opentargets, intact, uniprot, gwas, chembl, toxicity
+
+MAX_RETRIES = 3          # 最大リトライ回数
+RETRY_WAIT  = [2, 5, 10]  # 待機秒数（指数バックオフ）
+
+
+def _run_with_retry(fn, key: str, max_retries: int, log):
+    """fn を最大 max_retries 回リトライして実行する。"""
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            result = fn()
+            if attempt > 0:
+                log(f"{key}: OK (リトライ {attempt} 回目で成功)")
+            else:
+                log(f"{key}: OK")
+            return result, None
+        except Exception as e:
+            last_err = e
+            wait = RETRY_WAIT[min(attempt, len(RETRY_WAIT) - 1)]
+            log(f"{key}: エラー (試行 {attempt + 1}/{max_retries}) — {e}  → {wait}秒後に再試行")
+            if attempt < max_retries - 1:
+                time.sleep(wait)
+    return None, str(last_err)
 
 
 def collect_all(
@@ -10,11 +34,13 @@ def collect_all(
     verbose: bool = True,
     gene_id: str = None,
     disease_id: str = None,
+    max_retries: int = MAX_RETRIES,
 ) -> dict:
-    """Run all collectors in parallel and return aggregated evidence.
+    """Run all collectors in parallel with retry, and return aggregated evidence.
 
     gene_id / disease_id: optional Ensembl / EFO IDs from OpenTargets widget.
     When provided, they skip redundant ID-resolution queries inside opentargets.py.
+    max_retries: 各コレクターの最大リトライ回数（デフォルト 3 回）
     """
 
     def log(msg):
@@ -22,31 +48,30 @@ def collect_all(
             print(f"  [+] {msg}")
 
     tasks = {
-        "pubmed": lambda: pubmed.search_pubmed(gene, disease, max_results=5),
-        "opentargets": lambda: opentargets.get_target_disease_evidence(
-            gene, disease, gene_id=gene_id, disease_id=disease_id
-        ),
-        "uniprot": lambda: uniprot.get_protein_info(gene),
-        "intact": lambda: intact.get_interactions(gene, max_results=15),
-        "gwas": lambda: gwas.get_gwas_associations(gene, disease),
-        "clinvar": lambda: gwas.get_clinvar_variants(gene),
-        "chembl": lambda: chembl.get_drugs_for_target(gene),
+        "pubmed":       lambda: pubmed.search_pubmed(gene, disease, max_results=5),
+        "opentargets":  lambda: opentargets.get_target_disease_evidence(
+                            gene, disease, gene_id=gene_id, disease_id=disease_id),
+        "uniprot":      lambda: uniprot.get_protein_info(gene),
+        "intact":       lambda: intact.get_interactions(gene, max_results=15),
+        "gwas":         lambda: gwas.get_gwas_associations(gene, disease),
+        "clinvar":      lambda: gwas.get_clinvar_variants(gene),
+        "chembl":       lambda: chembl.get_drugs_for_target(gene),
     }
 
     results = {}
-    errors = {}
+    errors  = {}
+
+    def _task(key, fn):
+        return key, *_run_with_retry(fn, key, max_retries, log)
 
     with ThreadPoolExecutor(max_workers=6) as executor:
-        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
-        for future in as_completed(future_to_key):
-            key = future_to_key[future]
-            try:
-                results[key] = future.result()
-                log(f"{key}: OK")
-            except Exception as e:
-                errors[key] = str(e)
-                results[key] = None
-                log(f"{key}: FAILED ({e})")
+        futures = {executor.submit(_task, k, fn): k for k, fn in tasks.items()}
+        for future in as_completed(futures):
+            key, result, err = future.result()
+            results[key] = result
+            if err:
+                errors[key] = err
+                log(f"{key}: 最終失敗 — {err}")
 
     # Toxicity requires known drugs from chembl/opentargets
     known_drugs = []
@@ -55,13 +80,13 @@ def collect_all(
     if results.get("opentargets") and isinstance(results["opentargets"], dict):
         known_drugs.extend(results["opentargets"].get("known_drugs", []))
 
-    try:
-        results["toxicity"] = toxicity.assess_target_safety(gene, known_drugs)
-        log("toxicity: OK")
-    except Exception as e:
-        errors["toxicity"] = str(e)
-        results["toxicity"] = None
-        log(f"toxicity: FAILED ({e})")
+    tox_result, tox_err = _run_with_retry(
+        lambda: toxicity.assess_target_safety(gene, known_drugs),
+        "toxicity", max_retries, log,
+    )
+    results["toxicity"] = tox_result
+    if tox_err:
+        errors["toxicity"] = tox_err
 
     return {
         "gene": gene,
