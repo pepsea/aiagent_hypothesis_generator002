@@ -128,34 +128,47 @@ def get_target_disease_evidence(
 
     # 薬剤リスト整形
     known_drugs = []
-    for row in (target_data.get("drugAndClinicalCandidates") or {}).get("rows", []):
+    dc = target_data.get("drugAndClinicalCandidates") or {}
+    for row in (dc.get("rows") or []):
+        if not isinstance(row, dict):
+            continue
         drug = row.get("drug") or {}
-        diseases = [d.get("disease", {}).get("name", "") for d in (row.get("diseases") or [])]
+        # "disease" フィールドが null の場合に備えて `or {}` でガード
+        diseases = [
+            (d.get("disease") or {}).get("name", "")
+            for d in (row.get("diseases") or [])
+            if isinstance(d, dict)
+        ]
         known_drugs.append({
             "drug":      drug.get("name", ""),
             "max_phase": row.get("maxClinicalStage") or drug.get("maximumClinicalStage"),
             "disease":   diseases[0] if diseases else "",
-            "mechanism": "",  # mechanismsOfAction は別クエリが必要なため省略
+            "mechanism": "",
+        })
+
+    # 関連疾患リスト整形
+    assoc_dis_rows = (target_data.get("associatedDiseases") or {}).get("rows") or []
+    associated_diseases = []
+    for row in assoc_dis_rows:
+        if not isinstance(row, dict):
+            continue
+        associated_diseases.append({
+            "disease": (row.get("disease") or {}).get("name", ""),
+            "score":   row.get("score"),
         })
 
     return {
-        "gene_symbol":      gene_symbol,
-        "ensembl_id":       ensg_id,
-        "disease_id":       disease_id,
-        "disease_label":    disease_label,
-        "association_score": assoc_score,
-        "datatype_scores":  datatype_scores,
+        "gene_symbol":        gene_symbol,
+        "ensembl_id":         ensg_id,
+        "disease_id":         disease_id,
+        "disease_label":      disease_label,
+        "association_score":  assoc_score,
+        "datatype_scores":    datatype_scores,
         "gene_info": {
             "name":     target_data.get("approvedName", ""),
             "biotype":  target_data.get("biotype", ""),
             "function": (target_data.get("functionDescriptions") or [""])[:2],
         },
-        "known_drugs": known_drugs,
-        "associated_diseases": [
-            {
-                "disease": row.get("disease", {}).get("name", ""),
-                "score":   row.get("score"),
-            }
-            for row in (target_data.get("associatedDiseases") or {}).get("rows", [])
-        ],
+        "known_drugs":         known_drugs,
+        "associated_diseases": associated_diseases,
     }
