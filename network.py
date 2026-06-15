@@ -244,11 +244,14 @@ def network_summary_for_llm(
 
     results = (enrichment or {}).get("results", [])[:max_terms]
     if results:
-        lines.append("\n## Functional Enrichment (g:Profiler, FDR<0.05)")
+        gprofiler_url = "https://biit.cs.ut.ee/gprofiler/gost"
+        lines.append(f"\n## Functional Enrichment (g:Profiler FDR<0.05 — {gprofiler_url})")
         for r in results:
             p = r["p_value"]
+            term_id = r.get("term_id", "")
             lines.append(
-                f"- [{r['source']}] {r['term_name']} (p={p:.2e}, genes={r['intersection_size']})"
+                f"- [{r['source']}] {r['term_name']} ({term_id}) "
+                f"p={p:.2e}, n={r['intersection_size']}"
             )
 
     return "\n".join(lines)

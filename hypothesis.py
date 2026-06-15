@@ -49,7 +49,12 @@ List 3–5 priority experiments to validate this hypothesis (in vitro, in vivo, 
 - Alternative interpretations of the data
 - Major risks to the hypothesis
 
-Be specific, cite evidence from the data provided, and maintain scientific rigor. Do not fabricate data points not present in the evidence.
+Be specific and maintain scientific rigor. Do not fabricate data points not present in the evidence.
+
+**Citation rules:**
+- Cite evidence inline using the [Ref N] tags provided in the context (e.g., "strong GWAS association [Ref 3]").
+- At the end of the report, add a "## References" section that lists every [Ref N] you cited, copied verbatim from the References block in the context.
+- Do not invent reference numbers not present in the context.
 """
 
 HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と創薬仮説生成を専門とする薬化学者・計算生物学者です。
@@ -102,6 +107,11 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と創薬仮説
 - 仮説に対する主要なリスク
 
 提供されたデータに基づき具体的に記述し、科学的厳密性を保ってください。データにない情報を捏造しないでください。
+
+**引用のルール:**
+- コンテキスト内の [Ref N] タグを使って根拠を本文中に引用してください（例: 「強いGWAS関連性が確認されている [Ref 3]」）。
+- レポートの末尾に「## 参考文献」セクションを追加し、引用した [Ref N] をコンテキストの References ブロックからそのまま転記してください。
+- コンテキストに存在しない参照番号を創作しないでください。
 """
 
 PRESENTATION_EVAL_PROMPT = """You are a drug discovery expert preparing a concise slide-ready evaluation for a scientific presentation.
