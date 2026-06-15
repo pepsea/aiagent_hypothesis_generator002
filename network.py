@@ -154,9 +154,11 @@ def visualize_network_pyvis(
     gene_symbol: str,
     enrichment: dict | None = None,
     output_path: str = "reports/ppi_network.html",
+    max_nodes: int = 30,
 ) -> str | None:
     """pyvis でインタラクティブな PPI ネットワーク HTML を生成する。
 
+    max_nodes: 中心ノード + 上位 N 件のインタラクター（エッジ重みでソート）に絞る。
     Returns:
         生成した HTML ファイルのパス、または pyvis 未インストール時 None
     """
@@ -168,7 +170,24 @@ def visualize_network_pyvis(
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # エンリッチメント上位パスウェイでノード色分け
+    center = gene_symbol.upper()
+
+    # ── 表示ノードを上位 max_nodes 件に絞る ──────────────────────────────
+    neighbors = sorted(
+        G.neighbors(center),
+        key=lambda n: G.edges[center, n].get("weight", 1),
+        reverse=True,
+    )[:max_nodes]
+    visible_nodes = {center} | set(neighbors)
+    subG = G.subgraph(visible_nodes)
+
+    n_total  = G.number_of_nodes()
+    n_shown  = subG.number_of_nodes()
+    n_hidden = n_total - n_shown
+    if n_hidden > 0:
+        print(f"  表示: {n_shown} ノード（全 {n_total} 件中。上位 {max_nodes} インタラクターを表示）")
+
+    # ── エンリッチメント上位パスウェイでノード色分け ───────────────────
     pathway_gene_map: dict[str, str] = {}
     if enrichment:
         palette = ["#FFD700", "#FF8C00", "#7B68EE", "#20B2AA", "#FF69B4"]
@@ -179,37 +198,64 @@ def visualize_network_pyvis(
                 if g.upper() not in pathway_gene_map:
                     pathway_gene_map[g.upper()] = color
 
+    # ── pyvis 設定（軽量化: 物理演算を安定後に停止） ─────────────────────
     net = Network(
-        height="620px", width="100%",
+        height="600px", width="100%",
         bgcolor="#1a1a2e", font_color="#eee",
         notebook=True, cdn_resources="in_line",
     )
-    net.barnes_hut(spring_length=120, spring_strength=0.05, damping=0.09)
+    net.set_options("""
+    {
+      "physics": {
+        "enabled": true,
+        "solver": "forceAtlas2Based",
+        "forceAtlas2Based": {
+          "gravitationalConstant": -50,
+          "centralGravity": 0.01,
+          "springLength": 100,
+          "springConstant": 0.08,
+          "damping": 0.4,
+          "avoidOverlap": 0.5
+        },
+        "stabilization": {
+          "enabled": true,
+          "iterations": 150,
+          "updateInterval": 50
+        },
+        "maxVelocity": 50,
+        "minVelocity": 1.5
+      },
+      "interaction": {
+        "hover": true,
+        "tooltipDelay": 100
+      }
+    }
+    """)
 
-    center = gene_symbol.upper()
-    for node, attrs in G.nodes(data=True):
-        color = attrs.get("color", "#DDD")
+    for node, attrs in subG.nodes(data=True):
         if node == center:
             color = "#FF6B6B"
+            size  = 32
         elif node in pathway_gene_map:
             color = pathway_gene_map[node]
+            size  = 18
+        else:
+            color = attrs.get("color", "#4ECDC4")
+            size  = 14
 
-        label = node
         db    = attrs.get("db", "")
         title = f"<b>{node}</b><br>DB: {db}"
-        size  = 30 if node == center else 16
+        net.add_node(node, label=node, color=color, size=size, title=title)
 
-        net.add_node(node, label=label, color=color, size=size, title=title)
-
-    for src, tgt, attrs in G.edges(data=True):
+    for src, tgt, attrs in subG.edges(data=True):
         weight = attrs.get("weight", 1)
         db     = attrs.get("db", "")
         effect = attrs.get("effect", "")
         net.add_edge(
             src, tgt,
             title=f"DB: {db}<br>Effect: {effect}",
-            width=max(1, weight * 1.5),
-            color={"color": "#555", "highlight": "#FFF"},
+            width=max(1, min(weight * 1.5, 6)),
+            color={"color": "#666", "highlight": "#FFF"},
         )
 
     net.save_graph(output_path)
