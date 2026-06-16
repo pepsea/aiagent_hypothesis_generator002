@@ -107,69 +107,57 @@ def collect_all(
 
 
 def build_llm_context(aggregated: dict) -> str:
-    """Convert aggregated evidence into a structured text context for LLM.
+    """Convert aggregated evidence into compact structured context for LLM.
 
-    Each evidence item is assigned a numbered reference [Ref N] so the LLM
-    can cite specific sources in the hypothesis report.
+    References use short inline format to keep token count low.
+    Full citations are stored separately in aggregated["full_references"].
     """
     gene = aggregated["gene"]
     disease = aggregated["disease"]
     ev = aggregated["evidence"]
 
     sections = [
-        f"# Evidence Summary for Drug Target Hypothesis\n"
-        f"Gene: {gene}\nDisease/Condition: {disease}\n"
-        f"(Each evidence item has a [Ref N] tag — cite these in your report)\n"
+        f"# Evidence: {gene} × {disease}\n"
+        f"(Cite sources inline using tags like [Paper 1], [ClinVar 2], [UniProt], etc.)\n"
     ]
 
-    # カテゴリ別リファレンスレジストリ
-    # category -> [(tag, citation_str), ...]
-    ref_categories: dict[str, list[tuple[str, str]]] = {
-        "paper":   [],   # PubMed 論文
-        "disease": [],   # ClinVar / GWAS / OpenTargets
-        "gene":    [],   # UniProt / IntAct / PubChem
-        "drug":    [],   # ChEMBL
-    }
-    ref_counters: dict[str, int] = {k: 0 for k in ref_categories}
+    # ── Reference registry ─────────────────────────────────────────────────
+    # category -> [(tag, short_cite, full_cite), ...]
+    ref_reg: dict[str, list] = {"paper": [], "disease": [], "gene": [], "drug": []}
+    ref_cnt: dict[str, int]  = {k: 0 for k in ref_reg}
 
-    CATEGORY_PREFIX = {
-        "paper":   "Paper",
-        "disease": None,   # ClinVar N / GWAS N / OpenTargets など個別プレフィックス
-        "gene":    None,   # UniProt / IntAct など個別プレフィックス
-        "drug":    "ChEMBL",
-    }
-
-    def add_ref(category: str, citation: str, prefix: str = "") -> str:
-        """Register a citation and return its typed tag e.g. [Paper 1], [ClinVar 2]."""
-        if not prefix:
-            prefix = CATEGORY_PREFIX.get(category, "Ref")
+    def add_ref(category: str, prefix: str, short: str, full: str) -> str:
+        """Register citation, return tag. short = 1-line; full = Vancouver."""
         if prefix:
-            ref_counters[category] += 1
-            tag = f"[{prefix} {ref_counters[category]}]"
+            ref_cnt[category] += 1
+            tag = f"[{prefix} {ref_cnt[category]}]"
         else:
             tag = f"[{category}]"
-        ref_categories[category].append((tag, citation))
+        ref_reg[category].append((tag, short, full))
         return tag
+
+    def _short(author_list, year, journal, pmid="", url="") -> str:
+        first = author_list[0] if author_list else "Unknown"
+        et_al = " et al." if len(author_list) > 1 else ""
+        pmid_str = f" PMID:{pmid}" if pmid else ""
+        return f"{first}{et_al} {journal} {year}.{pmid_str} {url}".strip()
 
     # ── Gene/Protein info ──────────────────────────────────────────────────
     uni = ev.get("uniprot") or {}
     if uni and "error" not in uni:
-        uniprot_id = uni.get("uniprot_id", gene)
-        url = f"https://www.uniprot.org/uniprotkb/{uniprot_id}" if uniprot_id else \
-              "https://www.uniprot.org/"
-        citation = (
-            f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
-            f"Nucleic Acids Res. 2023;51(D1):D523-D531. "
-            f"Entry: {gene} ({uniprot_id}). {url}"
-        )
-        ref = add_ref("gene", citation, prefix="UniProt")
+        uid = uni.get("uniprot_id", "")
+        url = f"https://www.uniprot.org/uniprotkb/{uid}" if uid else "https://www.uniprot.org/"
+        short = f"UniProt entry {gene} ({uid}). {url}"
+        full  = (f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
+                 f"Nucleic Acids Res. 2023;51(D1):D523-D531. Entry: {gene} ({uid}). {url}")
+        ref = add_ref("gene", "UniProt", short, full)
+        func = (uni.get("function") or "")[:250]
         sections.append(
-            f"## Gene/Protein Information {ref}\n"
-            f"- Protein: {uni.get('protein_name', 'N/A')}\n"
-            f"- Function: {uni.get('function', 'N/A')[:500]}\n"
-            f"- Subcellular location: {', '.join(uni.get('subcellular_location', [])) or 'N/A'}\n"
-            f"- Keywords: {', '.join(uni.get('keywords', [])[:10]) or 'N/A'}\n"
-            f"- GO terms (sample): {'; '.join(g['term'] for g in uni.get('go_terms', [])[:8]) or 'N/A'}\n"
+            f"## Gene/Protein {ref}\n"
+            f"- Name: {uni.get('protein_name', 'N/A')}\n"
+            f"- Function: {func}\n"
+            f"- Location: {', '.join(uni.get('subcellular_location', [])[:4]) or 'N/A'}\n"
+            f"- Keywords: {', '.join(uni.get('keywords', [])[:8]) or 'N/A'}\n"
         )
 
     # ── OpenTargets ────────────────────────────────────────────────────────
@@ -177,83 +165,55 @@ def build_llm_context(aggregated: dict) -> str:
     if ot and "error" not in ot:
         ensg = ot.get("ensembl_id", "")
         efo  = ot.get("disease_id", "")
-        ot_url = (
-            f"https://platform.opentargets.org/evidence/{ensg}/{efo}"
-            if ensg and efo else "https://platform.opentargets.org/"
-        )
-        citation = (
-            f"Ochoa D, et al. Open Targets Platform: supporting systematic "
-            f"drug-target identification and prioritisation. "
-            f"Nucleic Acids Res. 2021;49(D1):D1302-D1310. "
-            f"Target-Disease: {gene} ({ensg}) × {ot.get('disease_label', disease)} ({efo}). "
-            f"{ot_url}"
-        )
-        ref = add_ref("disease", citation, prefix="OpenTargets")
+        url  = (f"https://platform.opentargets.org/evidence/{ensg}/{efo}"
+                if ensg and efo else "https://platform.opentargets.org/")
+        short = f"OpenTargets {gene}×{disease}. {url}"
+        full  = (f"Ochoa D, et al. Open Targets Platform. "
+                 f"Nucleic Acids Res. 2021;49(D1):D1302-D1310. {url}")
+        ref = add_ref("disease", "OpenTargets", short, full)
         score = ot.get("association_score")
-        score_str = f"{score:.3f}" if score is not None else "Not found"
-        dt_scores = ot.get("datatype_scores", {})
-        dt_str = "\n".join(f"  - {k}: {v:.3f}" for k, v in dt_scores.items()) or "  N/A"
+        score_str = f"{score:.3f}" if score is not None else "N/A"
+        dt_str = " | ".join(f"{k}:{v:.2f}" for k, v in (ot.get("datatype_scores") or {}).items())
         sections.append(
-            f"## OpenTargets Association Evidence {ref}\n"
-            f"- Overall association score: {score_str} (0–1)\n"
-            f"- Evidence by data type:\n{dt_str}\n"
-            f"- Disease label: {ot.get('disease_label', disease)}\n"
+            f"## OpenTargets {ref}\n"
+            f"- Score: {score_str} | {dt_str}\n"
         )
 
     # ── GWAS ───────────────────────────────────────────────────────────────
     gwas_hits = ev.get("gwas") or []
     if gwas_hits:
         lines = []
-        for h in gwas_hits[:5]:
-            study_id = h.get("study_id", "")
-            pub_date = h.get("pub_date", "")
-            first_author = h.get("first_author", "")
-            year = pub_date[:4] if pub_date else ""
-            url = f"https://www.ebi.ac.uk/gwas/studies/{study_id}" if study_id else \
-                  "https://www.ebi.ac.uk/gwas/"
-            author_str = f"{first_author}, et al. " if first_author else ""
-            year_str   = f"{year}. " if year else ""
-            citation = (
-                f"{author_str}GWAS Catalog Study {study_id}: {h.get('trait','')}. "
-                f"{year_str}"
-                f"Buniello A, et al. The NHGRI-EBI GWAS Catalog. "
-                f"Nucleic Acids Res. 2019;47(D1):D1005-D1012. "
-                f"{url}"
-            )
-            ref = add_ref("disease", citation, prefix="GWAS")
+        for h in gwas_hits[:4]:
+            sid  = h.get("study_id", "")
+            year = (h.get("pub_date") or "")[:4]
+            auth = h.get("first_author", "")
+            url  = f"https://www.ebi.ac.uk/gwas/studies/{sid}" if sid else "https://www.ebi.ac.uk/gwas/"
+            short = f"{auth} et al. GWAS Catalog {sid} {year}. {url}"
+            full  = (f"{auth} et al. GWAS Catalog Study {sid}: {h.get('trait','')}. {year}. "
+                     f"Buniello A et al. Nucleic Acids Res. 2019;47(D1):D1005-D1012. {url}")
+            ref = add_ref("disease", "GWAS", short, full)
             snps = ", ".join(h.get("snps", [])[:2])
-            lines.append(
-                f"  - {h['trait']} | p={h['p_value']} | OR/Beta={h['or_beta']} "
-                f"| SNPs: {snps} {ref}"
-            )
-        sections.append(f"## GWAS Associations (GWAS Catalog)\n" + "\n".join(lines) + "\n")
+            lines.append(f"  - {h['trait']} p={h['p_value']} OR={h['or_beta']} SNPs:{snps} {ref}")
+        sections.append(f"## GWAS\n" + "\n".join(lines) + "\n")
 
     # ── ClinVar ────────────────────────────────────────────────────────────
     cv_hits = ev.get("clinvar") or []
     if cv_hits:
         lines = []
-        for v in cv_hits[:5]:
-            var_id = str(v.get("uid", ""))
-            url = f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{var_id}/" if var_id else \
-                  f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}"
-            citation = (
-                f"Landrum MJ, et al. ClinVar: improvements to accessing data. "
-                f"Nucleic Acids Res. 2020;48(D1):D835-D844. "
-                f"Variant: {v.get('title','')[:80]} "
-                f"[Variation ID: {var_id}]. "
-                f"Clinical significance: {v.get('clinical_significance','')}. "
-                f"{url}"
-            )
-            ref = add_ref("disease", citation, prefix="ClinVar")
-            lines.append(
-                f"  - {v['title'][:70]} | {v['clinical_significance']} "
-                f"| Condition: {v['condition']} {ref}"
-            )
-        sections.append(f"## ClinVar Pathogenic Variants\n" + "\n".join(lines) + "\n")
+        for v in cv_hits[:4]:
+            vid = str(v.get("uid", ""))
+            url = (f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{vid}/"
+                   if vid else f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}")
+            short = f"ClinVar VarID:{vid} {v.get('clinical_significance','')}. {url}"
+            full  = (f"Landrum MJ et al. ClinVar. Nucleic Acids Res. 2020;48(D1):D835-D844. "
+                     f"Variant: {v.get('title','')[:80]} [VarID:{vid}]. {url}")
+            ref = add_ref("disease", "ClinVar", short, full)
+            lines.append(f"  - {v['title'][:65]} | {v['clinical_significance']} | {v['condition']} {ref}")
+        sections.append(f"## ClinVar Variants\n" + "\n".join(lines) + "\n")
 
     # ── Existing drugs ─────────────────────────────────────────────────────
     drugs_chembl = ev.get("chembl") or []
-    drugs_ot = ot.get("known_drugs", []) if ot else []
+    drugs_ot     = ot.get("known_drugs", []) if ot else []
     all_drugs = {
         d.get("name") or d.get("drug", ""): d
         for d in drugs_chembl + drugs_ot
@@ -261,80 +221,60 @@ def build_llm_context(aggregated: dict) -> str:
     }
     if all_drugs:
         lines = []
-        for name, d in list(all_drugs.items())[:8]:
-            chembl_id = d.get("chembl_id", "")
-            url = f"https://www.ebi.ac.uk/chembl/compound_report_card/{chembl_id}/" \
-                  if chembl_id else "https://www.ebi.ac.uk/chembl/"
+        for name, d in list(all_drugs.items())[:6]:
+            cid   = d.get("chembl_id", "")
+            url   = (f"https://www.ebi.ac.uk/chembl/compound_report_card/{cid}/"
+                     if cid else "https://www.ebi.ac.uk/chembl/")
             phase = d.get("max_phase") or d.get("phase")
-            mech  = d.get("mechanism", d.get("mechanism_of_action", ""))
-            citation = (
-                f"Mendez D, et al. ChEMBL: towards direct deposition of bioassay data. "
-                f"Nucleic Acids Res. 2019;47(D1):D930-D940. "
-                f"Compound: {name}"
-                + (f" ({chembl_id})" if chembl_id else "")
-                + (f". Max clinical phase: {phase}" if phase else "")
-                + (f". Mechanism: {mech}" if mech else "")
-                + f". {url}"
-            )
-            ref = add_ref("drug", citation, prefix="ChEMBL")
-            lines.append(f"  - {name} | Phase: {phase} | Mechanism: {mech or 'N/A'} {ref}")
-        sections.append(
-            f"## Existing Drugs / Clinical Candidates Targeting {gene}\n"
-            + "\n".join(lines) + "\n"
-        )
+            mech  = d.get("mechanism") or d.get("mechanism_of_action", "")
+            short = f"{name} phase:{phase} {mech[:60]}. {url}"
+            full  = (f"Mendez D et al. ChEMBL. Nucleic Acids Res. 2019;47(D1):D930-D940. "
+                     f"Compound: {name}" + (f" ({cid})" if cid else "")
+                     + (f" phase:{phase}" if phase else "")
+                     + (f" mech:{mech[:80]}" if mech else "") + f". {url}")
+            ref = add_ref("drug", "ChEMBL", short, full)
+            lines.append(f"  - {name} | Ph:{phase} | {mech[:60] or 'N/A'} {ref}")
+        sections.append(f"## Drugs targeting {gene}\n" + "\n".join(lines) + "\n")
     else:
-        sections.append(
-            f"## Existing Drugs\nNo approved drugs found targeting {gene} in ChEMBL/OpenTargets.\n"
-        )
+        sections.append(f"## Drugs\nNo approved drugs found for {gene}.\n")
 
     # ── Protein interactions ───────────────────────────────────────────────
     interactions = ev.get("intact") or []
     if interactions:
-        ia_url = f"https://www.ebi.ac.uk/intact/search?query={gene}"
-        citation = (
-            f"Orchard S, et al. The MIntAct project — IntAct as a common curation platform "
-            f"for 11 molecular interaction databases. "
-            f"Nucleic Acids Res. 2014;42(D1):D358-D363. "
-            f"Query gene: {gene}. {ia_url}"
-        )
-        ref = add_ref("gene", citation, prefix="IntAct")
-        partners = []
-        for ix in interactions[:10]:
-            partners.extend(ix.get("partners", []))
-        unique_partners = list(dict.fromkeys(partners))[:10]
+        url   = f"https://www.ebi.ac.uk/intact/search?query={gene}"
+        short = f"IntAct PPI for {gene}. {url}"
+        full  = (f"Orchard S et al. IntAct. Nucleic Acids Res. 2014;42(D1):D358-D363. {url}")
+        ref   = add_ref("gene", "IntAct", short, full)
+        partners = list(dict.fromkeys(
+            p for ix in interactions[:10] for p in ix.get("partners", [])
+        ))[:10]
         sections.append(
-            f"## Protein Interaction Network (IntAct) {ref}\n"
-            f"- Key interactors: {', '.join(unique_partners) or 'N/A'}\n"
+            f"## PPI (IntAct) {ref}\n"
+            f"- Interactors: {', '.join(partners) or 'N/A'}\n"
         )
 
     # ── Toxicity ───────────────────────────────────────────────────────────
     tox = ev.get("toxicity") or {}
     pb  = tox.get("pubchem_bioassay", {})
     ae  = tox.get("drug_adverse_events", {})
-    ae_str = ""
-    for drug_name, events in ae.items():
-        ae_str += f"\n  {drug_name}: " + ", ".join(
-            f"{e['reaction']}({e['count']})" for e in events[:3]
-        )
-    pc_url = f"https://pubchem.ncbi.nlm.nih.gov/#query={gene}&input_type=gene"
-    citation_pc = (
-        f"Kim S, et al. PubChem 2023 update. "
-        f"Nucleic Acids Res. 2023;51(D1):D1373-D1380. "
-        f"Gene bioassay query: {gene}. {pc_url}"
-    )
-    ref_pc = add_ref("gene", citation_pc, prefix="PubChem")
+    url = f"https://pubchem.ncbi.nlm.nih.gov/#query={gene}&input_type=gene"
+    short = f"PubChem BioAssay {gene}. {url}"
+    full  = f"Kim S et al. PubChem 2023. Nucleic Acids Res. 2023;51(D1):D1373-D1380. {url}"
+    ref_pc = add_ref("gene", "PubChem", short, full)
+    ae_str = "; ".join(
+        f"{drug}: " + ", ".join(f"{e['reaction']}({e['count']})" for e in evts[:2])
+        for drug, evts in list(ae.items())[:2]
+    ) or "N/A"
     sections.append(
-        f"## Toxicity / Safety Signals\n"
-        f"- PubChem BioAssay {ref_pc}: {pb.get('assay_count', 0)} assays\n"
-        f"- Adverse events from related drugs:{ae_str or ' N/A'}\n"
-        f"- Note: {tox.get('toxcast_note', '')}\n"
+        f"## Safety {ref_pc}\n"
+        f"- BioAssays: {pb.get('assay_count', 0)} | AEs: {ae_str}\n"
     )
 
     # ── Literature ─────────────────────────────────────────────────────────
     papers = ev.get("pubmed") or []
     if papers:
         paper_blocks = []
-        for p in papers[:5]:
+        for p in papers[:4]:
             pmid     = p.get("pmid", "")
             title    = p.get("title", "")
             journal  = p.get("journal", "")
@@ -342,207 +282,151 @@ def build_llm_context(aggregated: dict) -> str:
             authors  = p.get("authors", [])
             abstract = (p.get("abstract") or "").strip()
             url      = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
-
-            # Vancouver / NLM format citation
-            if authors:
-                author_str = ", ".join(authors[:3])
-                if len(authors) > 3:
-                    author_str += ", et al"
-            else:
-                author_str = "[Author(s) not available]"
-            citation = (
-                f"{author_str}. {title} "
-                f"{journal}. {year}. "
-                + (f"PMID: {pmid}. " if pmid else "")
-                + url
-            )
-            ref = add_ref("paper", citation, prefix="Paper")
-
-            # アブストラクトを 600 字で切り詰め（LLMへのコンテキスト量を制御）
-            abstract_snippet = abstract[:600] + ("..." if len(abstract) > 600 else "") \
-                               if abstract else "(Abstract not available)"
-
+            first3   = authors[:3]
+            auth_str = ", ".join(first3) + (", et al" if len(authors) > 3 else "")
+            short    = _short(authors, year, journal, pmid, url)
+            full     = f"{auth_str}. {title} {journal}. {year}. PMID:{pmid}. {url}"
+            ref = add_ref("paper", "Paper", short, full)
+            snippet = abstract[:300] + ("..." if len(abstract) > 300 else "") \
+                      if abstract else "(no abstract)"
             paper_blocks.append(
-                f"### {ref} [{year}] {title}\n"
-                f"**Authors:** {author_str}  |  **Journal:** {journal}\n\n"
-                f"**Abstract summary:**\n{abstract_snippet}\n"
+                f"### {ref} {title[:80]} ({year})\n"
+                f"_{auth_str} | {journal}_\n"
+                f"{snippet}\n"
             )
-        sections.append(
-            "## Recent Literature (PubMed) — with abstracts\n\n"
-            + "\n".join(paper_blocks)
-        )
+        sections.append("## Literature\n\n" + "\n".join(paper_blocks))
 
-    # ── gnomAD 制約スコア ──────────────────────────────────────────────────
+    # ── gnomAD ────────────────────────────────────────────────────────────
     gnom = ev.get("gnomad") or {}
     if gnom and "error" not in gnom:
-        url = gnom.get("url", "https://gnomad.broadinstitute.org/")
-        citation = (
-            f"Chen S, et al. A genomic mutational constraint map using variation in 76,156 human genomes. "
-            f"Nature. 2024;625:92-100. "
-            f"Gene: {gene} — pLI={gnom.get('pLI')}, LOEUF={gnom.get('LOEUF')}. {url}"
-        )
-        ref = add_ref("gene", citation, prefix="gnomAD")
+        url   = gnom.get("url", "https://gnomad.broadinstitute.org/")
+        short = f"gnomAD {gene} pLI={gnom.get('pLI')} LOEUF={gnom.get('LOEUF')}. {url}"
+        full  = (f"Chen S et al. Nature. 2024;625:92-100. {short}")
+        ref   = add_ref("gene", "gnomAD", short, full)
         sections.append(
-            f"## Population Genetics & Constraint (gnomAD) {ref}\n"
-            f"- pLI: {gnom.get('pLI')} (>0.9 = highly constrained)\n"
-            f"- LOEUF: {gnom.get('LOEUF')} (<0.35 = constrained)\n"
-            f"- Missense O/E: {gnom.get('oe_missense')}\n"
-            f"- Essentiality assessment: {gnom.get('essentiality')}\n"
+            f"## Constraint (gnomAD) {ref}\n"
+            f"- pLI:{gnom.get('pLI')} LOEUF:{gnom.get('LOEUF')} "
+            f"missenseOE:{gnom.get('oe_missense')} — {gnom.get('essentiality')}\n"
         )
 
-    # ── GTEx 組織発現 ──────────────────────────────────────────────────────
+    # ── GTEx ──────────────────────────────────────────────────────────────
     gtex_data = ev.get("gtex") or {}
     if gtex_data and "error" not in gtex_data:
-        url = gtex_data.get("url", "https://gtexportal.org/")
-        citation = (
-            f"GTEx Consortium. The GTEx Consortium atlas of genetic regulatory effects across human tissues. "
-            f"Science. 2020;369(6509):1318-1330. "
-            f"Gene expression: {gene}. {url}"
+        url   = gtex_data.get("url", "https://gtexportal.org/")
+        short = f"GTEx expression {gene}. {url}"
+        full  = f"GTEx Consortium. Science. 2020;369(6509):1318-1330. {short}"
+        ref   = add_ref("gene", "GTEx", short, full)
+        top3  = ", ".join(
+            f"{t['tissue']}({t['tpm']:.0f})" for t in gtex_data.get("top_tissues", [])[:3]
         )
-        ref = add_ref("gene", citation, prefix="GTEx")
-        top = gtex_data.get("top_tissues", [])[:5]
-        top_str = ", ".join(f"{t['tissue']} ({t['tpm']:.1f} TPM)" for t in top)
-        key = gtex_data.get("key_tissues", [])
-        key_str = "\n".join(
-            f"  - {t['tissue']}: {t['tpm']:.1f} TPM"
-            for t in key if t["tpm"] > 0
-        ) or "  N/A"
+        key   = "; ".join(
+            f"{t['tissue']}:{t['tpm']:.0f}" for t in gtex_data.get("key_tissues", []) if t["tpm"] > 0
+        ) or "N/A"
         sections.append(
-            f"## Tissue Gene Expression (GTEx v8) {ref}\n"
-            f"- Highest expression: {gtex_data.get('max_tissue')} ({gtex_data.get('max_tpm',0):.1f} TPM)\n"
-            f"- Top 5 tissues: {top_str}\n"
-            f"- Safety-relevant tissues:\n{key_str}\n"
+            f"## Expression GTEx {ref}\n"
+            f"- Top: {top3} | Safety tissues: {key}\n"
         )
 
     # ── Human Protein Atlas ────────────────────────────────────────────────
     hpa_data = ev.get("hpa") or {}
     if hpa_data and "error" not in hpa_data:
-        url = hpa_data.get("url", "https://www.proteinatlas.org/")
-        citation = (
-            f"Uhlén M, et al. Tissue-based map of the human proteome. "
-            f"Science. 2015;347(6220):1260419. "
-            f"Gene: {gene}. {url}"
-        )
-        ref = add_ref("gene", citation, prefix="HPA")
-        subcell = ", ".join(hpa_data.get("subcellular", [])[:5]) or "N/A"
-        prot_class = ", ".join(hpa_data.get("protein_class", [])[:5]) or "N/A"
-        tissue_lines = "\n".join(
-            f"  - {t['tissue']} / {t['cell_type']}: {t['level']} ({t['reliability']})"
-            for t in hpa_data.get("tissue_expression", [])[:8]
-        ) or "  N/A"
+        url   = hpa_data.get("url", "https://www.proteinatlas.org/")
+        short = f"HPA {gene}. {url}"
+        full  = f"Uhlén M et al. Science. 2015;347(6220):1260419. {short}"
+        ref   = add_ref("gene", "HPA", short, full)
+        subcell    = ", ".join(hpa_data.get("subcellular", [])[:4]) or "N/A"
+        prot_class = ", ".join(hpa_data.get("protein_class", [])[:3]) or "N/A"
+        tissues    = " | ".join(
+            f"{t['tissue']}:{t['level']}"
+            for t in hpa_data.get("tissue_expression", [])[:5]
+        ) or "N/A"
         sections.append(
-            f"## Protein Expression Profile (Human Protein Atlas) {ref}\n"
-            f"- Protein class: {prot_class}\n"
-            f"- Subcellular location: {subcell}\n"
-            f"- High/Medium expression tissues:\n{tissue_lines}\n"
+            f"## Protein Atlas {ref}\n"
+            f"- Class:{prot_class} | Location:{subcell}\n"
+            f"- Expression: {tissues}\n"
         )
 
-    # ── DGIdb 薬剤-遺伝子相互作用 ─────────────────────────────────────────
+    # ── DGIdb ─────────────────────────────────────────────────────────────
     dgi_data = ev.get("dgidb") or []
     if dgi_data:
-        url = f"https://dgidb.org/genes/{gene}#interactions"
-        citation = (
-            f"Cannon M, et al. DGIdb 4.0: updates to the drug-gene interaction database. "
-            f"Nucleic Acids Res. 2024;52(D1):D1227-D1235. "
-            f"Gene: {gene}. {url}"
-        )
-        ref = add_ref("drug", citation, prefix="DGIdb")
+        url   = f"https://dgidb.org/genes/{gene}#interactions"
+        short = f"DGIdb {gene}. {url}"
+        full  = f"Cannon M et al. Nucleic Acids Res. 2024;52(D1):D1227-D1235. {short}"
+        ref   = add_ref("drug", "DGIdb", short, full)
         approved = [d for d in dgi_data if d.get("approved")]
-        lines = []
-        for d in dgi_data[:8]:
-            app_str = "✓ Approved" if d.get("approved") else "Investigational"
-            i_type  = d.get("interaction_type", "")
-            direc   = d.get("directionality", "")
-            lines.append(
-                f"  - {d['drug_name']} | {app_str} | {i_type} {direc} "
-                f"| Sources: {', '.join(d.get('sources',[])[:3])}"
-            )
+        rows = " | ".join(
+            f"{d['drug_name']}({'✓' if d.get('approved') else 'inv'},{d.get('interaction_type','')})"
+            for d in dgi_data[:5]
+        )
         sections.append(
-            f"## Drug-Gene Interactions (DGIdb) {ref}\n"
-            f"- Total: {len(dgi_data)} interactions ({len(approved)} approved drugs)\n"
-            + "\n".join(lines) + "\n"
+            f"## DGIdb {ref}\n"
+            f"- {len(dgi_data)} interactions ({len(approved)} approved): {rows}\n"
         )
 
-    # ── ClinicalTrials.gov ─────────────────────────────────────────────────
+    # ── ClinicalTrials ────────────────────────────────────────────────────
     ct_data = ev.get("clinicaltrials") or []
     if ct_data:
-        citation = (
-            f"ClinicalTrials.gov. U.S. National Library of Medicine. "
-            f"Search: {gene} × {disease}. "
-            f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&intr={gene}"
+        url   = f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&intr={gene}"
+        short = f"ClinicalTrials {gene}×{disease}. {url}"
+        full  = f"ClinicalTrials.gov. U.S. NLM. {short}"
+        ref   = add_ref("disease", "ClinicalTrials", short, full)
+        rows  = " | ".join(
+            f"{t['nct_id']}({t['phase']},{t['status'][:8]})"
+            for t in ct_data[:4]
         )
-        ref = add_ref("disease", citation, prefix="ClinicalTrials")
-        lines = []
-        for t in ct_data[:6]:
-            ivs = ", ".join(t.get("interventions", [])[:3])
-            lines.append(
-                f"  - {t['nct_id']} | {t['phase']} | {t['status']} | {t['title'][:60]} | Interventions: {ivs}"
-            )
         sections.append(
-            f"## Clinical Trials (ClinicalTrials.gov) {ref}\n"
-            f"- {len(ct_data)} trials found for {gene} × {disease}\n"
-            + "\n".join(lines) + "\n"
+            f"## Clinical Trials {ref}\n"
+            f"- {len(ct_data)} trials: {rows}\n"
         )
 
-    # ── AlphaFold 構造情報 ─────────────────────────────────────────────────
+    # ── AlphaFold ─────────────────────────────────────────────────────────
     af_data = ev.get("alphafold") or {}
     if af_data and "error" not in af_data:
-        url = af_data.get("view_url", "https://alphafold.ebi.ac.uk/")
-        citation = (
-            f"Jumper J, et al. Highly accurate protein structure prediction with AlphaFold. "
-            f"Nature. 2021;596:583-589. "
-            f"Entry: {af_data.get('entry_id','')} (UniProt: {af_data.get('uniprot_id','')}). {url}"
-        )
-        ref = add_ref("gene", citation, prefix="AlphaFold")
+        url   = af_data.get("view_url", "https://alphafold.ebi.ac.uk/")
+        short = f"AlphaFold {af_data.get('entry_id','')} pLDDT={af_data.get('mean_plddt')}. {url}"
+        full  = f"Jumper J et al. Nature. 2021;596:583-589. {short}"
+        ref   = add_ref("gene", "AlphaFold", short, full)
         sections.append(
-            f"## Predicted 3D Structure (AlphaFold) {ref}\n"
-            f"- Entry: {af_data.get('entry_id','')}\n"
-            f"- Mean pLDDT: {af_data.get('mean_plddt')} / 100\n"
-            f"- Structural confidence: {af_data.get('confidence')}\n"
-            f"- Structure URL: {af_data.get('pdb_url','')}\n"
+            f"## Structure AlphaFold {ref}\n"
+            f"- pLDDT:{af_data.get('mean_plddt')} — {af_data.get('confidence')}\n"
         )
 
-    # ── Reactome パスウェイ ────────────────────────────────────────────────
+    # ── Reactome ──────────────────────────────────────────────────────────
     react_data = ev.get("reactome") or []
     if react_data:
-        url = f"https://reactome.org/content/query?q={gene}&species=Homo+sapiens"
-        citation = (
-            f"Milacic M, et al. The Reactome Pathway Knowledgebase 2024. "
-            f"Nucleic Acids Res. 2024;52(D1):D672-D678. "
-            f"Gene: {gene}. {url}"
-        )
-        ref = add_ref("gene", citation, prefix="Reactome")
-        disease_pw = [p for p in react_data if p.get("is_disease")]
-        all_pw     = react_data[:10]
-        lines = [f"  - {p['name']} [{p['pathway_id']}]" for p in all_pw]
+        url   = f"https://reactome.org/content/query?q={gene}&species=Homo+sapiens"
+        short = f"Reactome pathways {gene}. {url}"
+        full  = f"Milacic M et al. Nucleic Acids Res. 2024;52(D1):D672-D678. {short}"
+        ref   = add_ref("gene", "Reactome", short, full)
+        dpw   = [p for p in react_data if p.get("is_disease")]
+        names = " | ".join(p["name"] for p in react_data[:6])
         sections.append(
-            f"## Reactome Pathways {ref}\n"
-            f"- Total pathways: {len(react_data)} "
-            f"({len(disease_pw)} disease-annotated)\n"
-            + "\n".join(lines) + "\n"
+            f"## Reactome {ref}\n"
+            f"- {len(react_data)} pathways ({len(dpw)} disease): {names}\n"
         )
 
-    # ── Reference list（カテゴリ別） ──────────────────────────────────────
-    ref_section_lines = ["## References",
-                         "(Cite inline using the tags below. e.g. [Paper 1], [ClinVar 2], [OpenTargets 1])\n"]
-
-    CATEGORY_HEADERS = {
-        "paper":   "### Papers (PubMed)",
-        "disease": "### Disease & Genetic Databases  (ClinVar / GWAS / OpenTargets / ClinicalTrials)",
-        "gene":    "### Gene & Protein Databases  (UniProt / IntAct / gnomAD / GTEx / HPA / AlphaFold / Reactome / PubChem)",
-        "drug":    "### Drug Databases  (ChEMBL / DGIdb)",
+    # ── References (compact) ──────────────────────────────────────────────
+    HEADERS = {
+        "paper":   "### Papers",
+        "disease": "### Disease DBs (GWAS/ClinVar/OpenTargets/ClinicalTrials)",
+        "gene":    "### Gene/Protein DBs (UniProt/IntAct/gnomAD/GTEx/HPA/AlphaFold/Reactome/PubChem)",
+        "drug":    "### Drug DBs (ChEMBL/DGIdb)",
     }
-    any_ref = False
-    for cat, header in CATEGORY_HEADERS.items():
-        entries = ref_categories.get(cat, [])
+    ref_lines = ["## References\n"]
+    for cat, header in HEADERS.items():
+        entries = ref_reg.get(cat, [])
         if entries:
-            any_ref = True
-            ref_section_lines.append(header)
-            for tag, cite in entries:
-                ref_section_lines.append(f"{tag} {cite}")
-            ref_section_lines.append("")
+            ref_lines.append(header)
+            for tag, short, _ in entries:
+                ref_lines.append(f"{tag} {short}")
+            ref_lines.append("")
 
-    if any_ref:
-        sections.append("\n".join(ref_section_lines))
+    sections.append("\n".join(ref_lines))
+
+    # 完全引用を別フィールドに保存（レポート保存時に使用）
+    aggregated["full_references"] = {
+        cat: [(tag, full) for tag, _, full in entries]
+        for cat, entries in ref_reg.items()
+    }
 
     return "\n".join(sections)
