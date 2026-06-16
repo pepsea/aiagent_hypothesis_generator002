@@ -60,7 +60,25 @@ One-paragraph synthesis integrating all four sub-assessments above.
 ---
 
 ## 3. Therapeutic Hypothesis
-State a single, testable hypothesis:
+
+### 3a. Molecular Mechanism Hypothesis
+Describe the proposed molecular mechanism in bullet points:
+- **Dysregulation**: How is {gene} dysregulated or dysfunctional in {disease}? [cite evidence]
+- **Key pathway**: Which downstream pathway/effector is most critically affected? [cite evidence]
+- **Cellular consequence**: What cell-level phenotype does this produce? [cite evidence]
+- **Tissue/organ consequence**: How does that cellular phenotype lead to {disease} pathology? [cite evidence]
+
+### 3b. Disease Treatment Hypothesis
+State the core therapeutic hypothesis as a structured argument:
+- **Intervention**: What specific intervention on {gene} is proposed? (inhibition / activation / degradation / replacement / etc.)
+- **Expected effect on target**: How would this intervention alter {gene} activity or expression?
+- **Expected downstream effect**: How would that target-level change correct the molecular mechanism above?
+- **Expected clinical outcome**: What improvement in {disease} symptoms or progression would result?
+- **Supporting rationale**: Key evidence supporting this logic [cite Paper, GWAS, ClinVar, OpenTargets refs]
+- **Testable prediction**: One falsifiable prediction that would confirm or refute this hypothesis
+
+### 3c. Hypothesis Statement (one sentence)
+Synthesise 3a–3b into a single testable sentence:
 "If [specific intervention on {gene}] then [expected therapeutic outcome in {disease} patients] because [mechanistic rationale]."
 
 ---
@@ -181,7 +199,25 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と仮説生成
 ---
 
 ## 3. 治療仮説
-以下の形式で1つの検証可能な仮説を述べてください：
+
+### 3a. 分子メカニズム仮説
+提案する分子メカニズムを箇条書きで記述してください：
+- **機能異常**: {disease}において{gene}はどのように異常を来しているか？ [エビデンスを引用]
+- **主要パスウェイ**: 最も重要な下流パスウェイ・エフェクターはどれか？ [エビデンスを引用]
+- **細胞レベルの結果**: その異常はどのような細胞表現型を引き起こすか？ [エビデンスを引用]
+- **組織・臓器レベルの結果**: その細胞表現型が{disease}の病態にどうつながるか？ [エビデンスを引用]
+
+### 3b. 疾患治療仮説
+治療仮説を以下の構造で箇条書きにしてください：
+- **介入方法**: {gene}に対してどのような介入を提案するか？（阻害 / 活性化 / 分解 / 補充 / 遺伝子補正 など）
+- **ターゲットへの効果**: その介入によって{gene}の活性・発現はどう変わるか？
+- **下流への効果**: そのターゲット変化が上記の分子メカニズム異常をどう是正するか？
+- **期待される臨床効果**: {disease}の症状・進行においてどのような改善が得られるか？
+- **支持するエビデンス**: この論理を支持する主要なエビデンス [Paper・GWAS・ClinVar・OpenTargetsを引用]
+- **検証可能な予測**: この仮説を支持または否定できる反証可能な予測を1つ示す
+
+### 3c. 仮説ステートメント（一文）
+3a〜3bを一文にまとめてください：
 「{gene}に対して〔具体的介入〕を行うと、{disease}患者において〔期待される治療効果〕が得られる。これは〔メカニズムの根拠〕による。」
 
 ---
