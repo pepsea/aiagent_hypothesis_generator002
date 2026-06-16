@@ -142,7 +142,9 @@ def collect_all(
             print(f"  [+] {msg}")
 
     tasks = {
-        "pubmed":          lambda: pubmed.search_pubmed(gene, disease, max_results=8),
+        "pubmed":          lambda: pubmed.search_pubmed(
+                               gene, disease, max_results=8,
+                               disease_efo_id=disease_id),
         "opentargets":     lambda: opentargets.get_target_disease_evidence(
                                gene, disease, gene_id=gene_id, disease_id=disease_id),
         "uniprot":         lambda: uniprot.get_protein_info(gene),
