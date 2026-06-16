@@ -106,12 +106,33 @@ def collect_all(
     }
 
 
-def build_llm_context(aggregated: dict) -> str:
+# デフォルトのコンテキスト設定
+DEFAULT_CONTEXT_CONFIG = dict(
+    max_papers       = 4,    # 論文数
+    abstract_chars   = 300,  # アブストラクト1件あたりの文字数
+    max_drugs        = 6,    # 薬剤数（ChEMBL+OpenTargets合計）
+    max_gwas         = 4,    # GWAS ヒット数
+    max_clinvar      = 4,    # ClinVar バリアント数
+    max_interactions = 10,   # PPI インタラクター数
+    max_trials       = 4,    # 臨床試験数
+    max_reactome     = 6,    # Reactome パスウェイ数
+    gtex_top_n       = 3,    # GTEx 上位組織数
+    hpa_top_n        = 5,    # HPA 組織数
+    max_dgidb        = 5,    # DGIdb 薬剤-遺伝子相互作用数
+    uniprot_chars    = 250,  # UniProt function 文字数
+)
+
+
+def build_llm_context(aggregated: dict, config: dict = None) -> str:
     """Convert aggregated evidence into compact structured context for LLM.
 
     References use short inline format to keep token count low.
     Full citations are stored separately in aggregated["full_references"].
+
+    config: dict to override DEFAULT_CONTEXT_CONFIG values.
     """
+    cfg = {**DEFAULT_CONTEXT_CONFIG, **(config or {})}
+
     gene = aggregated["gene"]
     disease = aggregated["disease"]
     ev = aggregated["evidence"]
@@ -151,7 +172,7 @@ def build_llm_context(aggregated: dict) -> str:
         full  = (f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
                  f"Nucleic Acids Res. 2023;51(D1):D523-D531. Entry: {gene} ({uid}). {url}")
         ref = add_ref("gene", "UniProt", short, full)
-        func = (uni.get("function") or "")[:250]
+        func = (uni.get("function") or "")[:cfg["uniprot_chars"]]
         sections.append(
             f"## Gene/Protein {ref}\n"
             f"- Name: {uni.get('protein_name', 'N/A')}\n"
@@ -183,7 +204,7 @@ def build_llm_context(aggregated: dict) -> str:
     gwas_hits = ev.get("gwas") or []
     if gwas_hits:
         lines = []
-        for h in gwas_hits[:4]:
+        for h in gwas_hits[:cfg["max_gwas"]]:
             sid  = h.get("study_id", "")
             year = (h.get("pub_date") or "")[:4]
             auth = h.get("first_author", "")
@@ -200,7 +221,7 @@ def build_llm_context(aggregated: dict) -> str:
     cv_hits = ev.get("clinvar") or []
     if cv_hits:
         lines = []
-        for v in cv_hits[:4]:
+        for v in cv_hits[:cfg["max_clinvar"]]:
             vid = str(v.get("uid", ""))
             url = (f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{vid}/"
                    if vid else f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}")
@@ -221,7 +242,7 @@ def build_llm_context(aggregated: dict) -> str:
     }
     if all_drugs:
         lines = []
-        for name, d in list(all_drugs.items())[:6]:
+        for name, d in list(all_drugs.items())[:cfg["max_drugs"]]:
             cid   = d.get("chembl_id", "")
             url   = (f"https://www.ebi.ac.uk/chembl/compound_report_card/{cid}/"
                      if cid else "https://www.ebi.ac.uk/chembl/")
@@ -246,8 +267,8 @@ def build_llm_context(aggregated: dict) -> str:
         full  = (f"Orchard S et al. IntAct. Nucleic Acids Res. 2014;42(D1):D358-D363. {url}")
         ref   = add_ref("gene", "IntAct", short, full)
         partners = list(dict.fromkeys(
-            p for ix in interactions[:10] for p in ix.get("partners", [])
-        ))[:10]
+            p for ix in interactions[:cfg["max_interactions"]] for p in ix.get("partners", [])
+        ))[:cfg["max_interactions"]]
         sections.append(
             f"## PPI (IntAct) {ref}\n"
             f"- Interactors: {', '.join(partners) or 'N/A'}\n"
@@ -274,7 +295,7 @@ def build_llm_context(aggregated: dict) -> str:
     papers = ev.get("pubmed") or []
     if papers:
         paper_blocks = []
-        for p in papers[:4]:
+        for p in papers[:cfg["max_papers"]]:
             pmid     = p.get("pmid", "")
             title    = p.get("title", "")
             journal  = p.get("journal", "")
@@ -287,7 +308,8 @@ def build_llm_context(aggregated: dict) -> str:
             short    = _short(authors, year, journal, pmid, url)
             full     = f"{auth_str}. {title} {journal}. {year}. PMID:{pmid}. {url}"
             ref = add_ref("paper", "Paper", short, full)
-            snippet = abstract[:300] + ("..." if len(abstract) > 300 else "") \
+            n = cfg["abstract_chars"]
+            snippet = abstract[:n] + ("..." if len(abstract) > n else "") \
                       if abstract else "(no abstract)"
             paper_blocks.append(
                 f"### {ref} {title[:80]} ({year})\n"
@@ -317,7 +339,7 @@ def build_llm_context(aggregated: dict) -> str:
         full  = f"GTEx Consortium. Science. 2020;369(6509):1318-1330. {short}"
         ref   = add_ref("gene", "GTEx", short, full)
         top3  = ", ".join(
-            f"{t['tissue']}({t['tpm']:.0f})" for t in gtex_data.get("top_tissues", [])[:3]
+            f"{t['tissue']}({t['tpm']:.0f})" for t in gtex_data.get("top_tissues", [])[:cfg["gtex_top_n"]]
         )
         key   = "; ".join(
             f"{t['tissue']}:{t['tpm']:.0f}" for t in gtex_data.get("key_tissues", []) if t["tpm"] > 0
@@ -338,7 +360,7 @@ def build_llm_context(aggregated: dict) -> str:
         prot_class = ", ".join(hpa_data.get("protein_class", [])[:3]) or "N/A"
         tissues    = " | ".join(
             f"{t['tissue']}:{t['level']}"
-            for t in hpa_data.get("tissue_expression", [])[:5]
+            for t in hpa_data.get("tissue_expression", [])[:cfg["hpa_top_n"]]
         ) or "N/A"
         sections.append(
             f"## Protein Atlas {ref}\n"
@@ -356,7 +378,7 @@ def build_llm_context(aggregated: dict) -> str:
         approved = [d for d in dgi_data if d.get("approved")]
         rows = " | ".join(
             f"{d['drug_name']}({'✓' if d.get('approved') else 'inv'},{d.get('interaction_type','')})"
-            for d in dgi_data[:5]
+            for d in dgi_data[:cfg["max_dgidb"]]
         )
         sections.append(
             f"## DGIdb {ref}\n"
@@ -372,7 +394,7 @@ def build_llm_context(aggregated: dict) -> str:
         ref   = add_ref("disease", "ClinicalTrials", short, full)
         rows  = " | ".join(
             f"{t['nct_id']}({t['phase']},{t['status'][:8]})"
-            for t in ct_data[:4]
+            for t in ct_data[:cfg["max_trials"]]
         )
         sections.append(
             f"## Clinical Trials {ref}\n"
@@ -399,7 +421,7 @@ def build_llm_context(aggregated: dict) -> str:
         full  = f"Milacic M et al. Nucleic Acids Res. 2024;52(D1):D672-D678. {short}"
         ref   = add_ref("gene", "Reactome", short, full)
         dpw   = [p for p in react_data if p.get("is_disease")]
-        names = " | ".join(p["name"] for p in react_data[:6])
+        names = " | ".join(p["name"] for p in react_data[:cfg["max_reactome"]])
         sections.append(
             f"## Reactome {ref}\n"
             f"- {len(react_data)} pathways ({len(dpw)} disease): {names}\n"
