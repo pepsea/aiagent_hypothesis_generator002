@@ -108,18 +108,20 @@ def collect_all(
 
 # デフォルトのコンテキスト設定
 DEFAULT_CONTEXT_CONFIG = dict(
-    max_papers       = 4,    # 論文数
-    abstract_chars   = 300,  # アブストラクト1件あたりの文字数
-    max_drugs        = 6,    # 薬剤数（ChEMBL+OpenTargets合計）
-    max_gwas         = 4,    # GWAS ヒット数
-    max_clinvar      = 4,    # ClinVar バリアント数
+    max_papers       = 5,    # 論文数（PubMed）
+    abstract_chars   = 600,  # アブストラクト1件あたりの文字数
+    max_drugs        = 8,    # 薬剤数（ChEMBL+OpenTargets合計）
+    max_gwas         = 5,    # GWAS ヒット数
+    max_clinvar      = 5,    # ClinVar バリアント数
     max_interactions = 10,   # PPI インタラクター数
-    max_trials       = 4,    # 臨床試験数
-    max_reactome     = 6,    # Reactome パスウェイ数
-    gtex_top_n       = 3,    # GTEx 上位組織数
-    hpa_top_n        = 5,    # HPA 組織数
-    max_dgidb        = 5,    # DGIdb 薬剤-遺伝子相互作用数
-    uniprot_chars    = 250,  # UniProt function 文字数
+    max_trials       = 6,    # 臨床試験数
+    max_reactome     = 10,   # Reactome パスウェイ数
+    gtex_top_n       = 5,    # GTEx 上位組織数
+    hpa_top_n        = 8,    # HPA 組織数
+    max_dgidb        = 8,    # DGIdb 薬剤-遺伝子相互作用数
+    uniprot_chars    = 500,  # UniProt function 文字数
+    uniprot_keywords = 10,   # UniProt キーワード数
+    uniprot_go_terms = 8,    # UniProt GO term 数
 )
 
 
@@ -173,12 +175,15 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
                  f"Nucleic Acids Res. 2023;51(D1):D523-D531. Entry: {gene} ({uid}). {url}")
         ref = add_ref("gene", "UniProt", short, full)
         func = (uni.get("function") or "")[:cfg["uniprot_chars"]]
+        kws  = ", ".join(uni.get("keywords", [])[:cfg["uniprot_keywords"]]) or "N/A"
+        gos  = "; ".join(g["term"] for g in uni.get("go_terms", [])[:cfg["uniprot_go_terms"]]) or "N/A"
         sections.append(
             f"## Gene/Protein {ref}\n"
             f"- Name: {uni.get('protein_name', 'N/A')}\n"
             f"- Function: {func}\n"
             f"- Location: {', '.join(uni.get('subcellular_location', [])[:4]) or 'N/A'}\n"
-            f"- Keywords: {', '.join(uni.get('keywords', [])[:8]) or 'N/A'}\n"
+            f"- Keywords: {kws}\n"
+            f"- GO terms: {gos}\n"
         )
 
     # ── OpenTargets ────────────────────────────────────────────────────────
