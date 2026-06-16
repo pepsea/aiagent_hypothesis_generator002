@@ -37,8 +37,10 @@ Evaluate genetic evidence linking {gene} to {disease}:
 - Stage of clinical development and therapeutic area overlap
 - Patient population relevance and unmet medical need
 
-### 1d. Gene Function & Network Context
+### 1d. Gene Function, Expression & Network Context
 - Core molecular function of {gene} (kinase/receptor/transcription factor etc.) [cite UniProt]
+- Tissue expression profile: which tissues/organs express {gene} most highly, and relevance to {disease} tissue [cite GTEx, HPA]
+- Protein subcellular localisation and protein class [cite HPA, UniProt]
 - Key protein–protein interactions and their disease relevance [cite IntAct/SIGNOR refs if available]
 - Pathway/GO enrichment context from network analysis [cite enrichment results if available]
 - Overall network-level role in {disease}-relevant biology
@@ -65,7 +67,9 @@ State a single, testable hypothesis:
 
 ## 4. Modality Recommendation
 Recommend the best-fit drug modality (small molecule inhibitor/activator, antibody, PROTAC, ASO, gene therapy, etc.):
-- Rationale aligned to target biology [cite UniProt/literature]
+- Rationale aligned to target biology and subcellular localisation [cite UniProt, HPA]
+- Tissue specificity considerations: if {gene} is broadly expressed, discuss selectivity strategy; if tissue-restricted, note delivery advantage [cite GTEx, HPA]
+- AlphaFold structural confidence and druggability implications [cite AlphaFold if available]
 - Key technical considerations
 - Advantage over alternative modalities
 
@@ -80,6 +84,8 @@ Recommend the best-fit drug modality (small molecule inhibitor/activator, antibo
 
 ## 6. Safety & Toxicity Risk Assessment
 - On-target safety risks from gene function [cite UniProt, PubChem]
+- Tissue expression safety: list safety-relevant tissues where {gene} is expressed (heart, liver, kidney, CNS, reproductive organs) and discuss associated risks [cite GTEx, HPA]
+- Population constraint: interpret pLI/LOEUF scores — high constraint implies greater on-target risk [cite gnomAD if available]
 - Off-target / mechanism-based toxicity signals [cite adverse event data]
 - Patient population risk factors
 
@@ -152,8 +158,10 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と仮説生成
 - 臨床開発段階と治療領域との重複
 - 患者集団との関連性とアンメットニーズ
 
-### 1d. 遺伝子機能とネットワークコンテキスト
+### 1d. 遺伝子機能・発現プロファイル・ネットワークコンテキスト
 - {gene}の中核的分子機能（キナーゼ/受容体/転写因子等）[UniProtを引用]
+- 組織発現プロファイル：{gene}が最も高く発現する組織・臓器と{disease}関連組織との関係 [GTEx・HPAを引用]
+- タンパク質細胞内局在およびタンパク質クラス [HPA・UniProtを引用]
 - 主要なタンパク質相互作用とその疾患関連性 [IntAct/SIGNORを引用]
 - ネットワーク解析のパスウェイ・GOエンリッチメント結果 [エンリッチメント結果を引用]
 - {disease}関連生物学におけるネットワークレベルの役割
@@ -180,7 +188,9 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と仮説生成
 
 ## 4. モダリティ提案
 最適な創薬モダリティ（低分子阻害薬/活性化薬・抗体・PROTAC・ASO・遺伝子療法など）を推奨：
-- ターゲット生物学に基づく根拠 [UniProt/文献を引用]
+- ターゲット生物学・細胞内局在に基づく根拠 [UniProt・HPAを引用]
+- 組織特異性の考慮：{gene}が広範に発現する場合は選択性戦略を、組織限局発現の場合はデリバリー上の優位性を論じる [GTEx・HPAを引用]
+- AlphaFold構造信頼度とドラッガビリティへの示唆 [AlphaFoldが利用可能な場合引用]
 - 主要な技術的考慮事項
 - 他のモダリティに対する優位性
 
@@ -195,6 +205,8 @@ HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と仮説生成
 
 ## 6. 安全性・毒性リスク評価
 - 遺伝子機能に基づくオンターゲット安全性懸念 [UniProt、PubChemを引用]
+- 組織発現と安全性：心臓・肝臓・腎臓・CNS・生殖器官における{gene}発現と、それに伴うリスクを具体的に論じる [GTEx・HPAを引用]
+- 集団制約スコア：pLI/LOEUFが高い場合はオンターゲットリスクが大きいことを考察 [gnomADが利用可能な場合引用]
 - オフターゲット・機序由来毒性シグナル [副作用データを引用]
 - 患者集団上のリスク要因
 
