@@ -1,121 +1,238 @@
 """Hypothesis generation — builds prompt and calls LLM."""
 
-HYPOTHESIS_PROMPT_TEMPLATE = """You are an expert medicinal chemist and computational biologist specializing in drug target identification and drug discovery hypothesis generation.
+# ──────────────────────────────────────────────────────────────────────────────
+# English prompt
+# ──────────────────────────────────────────────────────────────────────────────
+HYPOTHESIS_PROMPT_TEMPLATE = """You are an expert medicinal chemist and computational biologist specializing in drug target identification and hypothesis generation.
 
-Based on the evidence below, generate a detailed drug discovery hypothesis for targeting the gene {gene} in the context of {disease}.
+Based on the structured evidence below, generate a detailed drug discovery hypothesis report for targeting {gene} in {disease}.
 
 {context}
 
 ---
 
-Please provide a structured hypothesis report with the following sections:
+Produce a structured report using EXACTLY the sections below.
+For every factual claim, cite the source using the reference tag provided in the context (e.g. [Paper 1], [ClinVar 2], [GWAS 1], [OpenTargets], [UniProt], etc.).
+Use abstract summaries from the literature section to support mechanistic arguments.
+Do NOT fabricate data or reference numbers not present in the evidence.
+
+---
 
 ## 1. Target Validity Assessment
-- Summarize the strength of evidence linking {gene} to {disease}
-- Assign a confidence score (Low / Medium / High / Very High) with justification
-- Key supporting evidence points (genetic, functional, clinical)
+
+### 1a. Genetic Association Evidence
+Evaluate genetic evidence linking {gene} to {disease}:
+- GWAS findings: significant loci, effect sizes, lead SNPs [cite GWAS refs]
+- ClinVar pathogenic/likely-pathogenic variants [cite ClinVar refs]
+- Genetic evidence confidence: **Low / Moderate / High / Very High** — justify in one sentence
+
+### 1b. Functional Association Evidence
+- How does {gene} function relate to the biology of {disease}?
+- Key mechanisms from the literature: cite and summarize relevant abstract findings [cite Paper refs]
+- Disease mechanism of action (MoA): known or proposed molecular role of {gene} in disease pathophysiology
+- Functional evidence confidence: **Low / Moderate / High / Very High**
+
+### 1c. Clinical Relevance
+- Existing drugs/clinical candidates targeting {gene} [cite ChEMBL refs]
+- Stage of clinical development and therapeutic area overlap
+- Patient population relevance and unmet medical need
+
+### 1d. Gene Function & Network Context
+- Core molecular function of {gene} (kinase/receptor/transcription factor etc.) [cite UniProt]
+- Key protein–protein interactions and their disease relevance [cite IntAct/SIGNOR refs if available]
+- Pathway/GO enrichment context from network analysis [cite enrichment results if available]
+- Overall network-level role in {disease}-relevant biology
+
+### 1e. Overall Target Validity Score
+**Overall: Low / Moderate / High / Very High**
+One-paragraph synthesis integrating all four sub-assessments above.
+
+---
 
 ## 2. Proposed Disease Mechanism
-- How does dysregulation/mutation of {gene} contribute to {disease} pathophysiology?
-- Relevant biological pathways and network context
-- Upstream/downstream molecular players
+- Step-by-step mechanistic model: how does {gene} dysregulation → {disease} phenotype?
+- Supporting evidence from literature abstracts [cite Paper refs]
+- Upstream activators and downstream effectors
+- Relevant biological pathways
+
+---
 
 ## 3. Therapeutic Hypothesis
-State a clear, testable hypothesis in the format:
-"If [mechanism of intervention on {gene}] then [expected therapeutic outcome] because [mechanistic rationale]"
+State a single, testable hypothesis:
+"If [specific intervention on {gene}] then [expected therapeutic outcome in {disease} patients] because [mechanistic rationale]."
+
+---
 
 ## 4. Modality Recommendation
-Recommend the most suitable drug modality (small molecule, antibody, PROTAC, ASO, gene therapy, etc.) and explain:
-- Why this modality fits the target biology
+Recommend the best-fit drug modality (small molecule inhibitor/activator, antibody, PROTAC, ASO, gene therapy, etc.):
+- Rationale aligned to target biology [cite UniProt/literature]
 - Key technical considerations
-- Potential advantages over alternative modalities
+- Advantage over alternative modalities
 
-## 5. Existing Drug Landscape & Repositioning Opportunities
-- Summarize existing drugs/compounds targeting {gene}
-- Identify repositioning candidates or combination strategies
-- Competitive/freedom-to-operate considerations
+---
+
+## 5. Existing Drug Landscape & Repositioning
+- Summary of drugs/candidates targeting {gene} [cite ChEMBL refs]
+- Repositioning opportunities or combination strategies
+- Competitive considerations
+
+---
 
 ## 6. Safety & Toxicity Risk Assessment
-- Key on-target safety concerns based on gene function
-- Off-target/mechanism-based toxicity risks
-- Patient population considerations
+- On-target safety risks from gene function [cite UniProt, PubChem]
+- Off-target / mechanism-based toxicity signals [cite adverse event data]
+- Patient population risk factors
+
+---
 
 ## 7. Recommended Next Experiments
-List 3–5 priority experiments to validate this hypothesis (in vitro, in vivo, translational):
-- Experiment type | Endpoint | Expected result
+List 3–5 prioritised experiments:
+| Experiment | Endpoint | Expected Result |
+|---|---|---|
+| ... | ... | ... |
+
+---
 
 ## 8. Key Uncertainties & Limitations
-- What evidence is missing?
-- Alternative interpretations of the data
-- Major risks to the hypothesis
+- Missing evidence gaps
+- Alternative hypotheses
+- Major risks to this hypothesis
 
-Be specific and maintain scientific rigor. Do not fabricate data points not present in the evidence.
+---
 
-**Citation rules:**
-- Cite evidence inline using the [Ref N] tags provided in the context (e.g., "strong GWAS association [Ref 3]").
-- Use the abstract summaries in the "Recent Literature" section to support mechanistic reasoning — quote or paraphrase key findings from abstracts where relevant.
-- At the end of the report, add a "## References" section that lists every [Ref N] you cited, copied verbatim from the References block in the context.
-- Do not invent reference numbers not present in the context.
+## References
+
+### Papers (PubMed)
+(List every [Paper N] cited above, copied verbatim from the context References section)
+
+### Disease & Genetic Databases
+(List every [ClinVar N], [GWAS N], [OpenTargets] cited above)
+
+### Gene & Protein Databases
+(List every [UniProt], [IntAct], [SIGNOR] cited above)
+
+### Drug & Safety Databases
+(List every [ChEMBL N], [PubChem] cited above)
 """
 
-HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と創薬仮説生成を専門とする薬化学者・計算生物学者です。
+# ──────────────────────────────────────────────────────────────────────────────
+# Japanese prompt
+# ──────────────────────────────────────────────────────────────────────────────
+HYPOTHESIS_PROMPT_JA = """あなたは創薬ターゲット同定と仮説生成を専門とする薬化学者・計算生物学者です。
 
-以下のエビデンスに基づき、{disease}に対する{gene}をターゲットとした創薬仮説を日本語で詳述してください。
+以下の構造化エビデンスに基づき、{disease}に対する{gene}をターゲットとした創薬仮説レポートを日本語で作成してください。
 
 {context}
 
 ---
 
-以下の構成でレポートを作成してください：
+以下のセクション構成に従って、厳密にレポートを作成してください。
+各事実には、コンテキスト内のリファレンスタグを引用してください（例: [Paper 1]、[ClinVar 2]、[GWAS 1]、[OpenTargets]、[UniProt] など）。
+論文のアブストラクト要約はメカニズム考察の根拠として積極的に引用・要約してください。
+コンテキストにないデータや参照番号を創作しないでください。
 
-## 1. ターゲット妥当性評価
-- {gene}と{disease}を結びつけるエビデンスの強度を要約
-- 確信度スコア（低 / 中 / 高 / 非常に高）を根拠とともに提示
-- 主要な支持エビデンス（遺伝的・機能的・臨床的）
+---
+
+## 1. ターゲット妥当性評価（Target Validity Assessment）
+
+### 1a. 遺伝的関連エビデンス（Genetic Association）
+{gene}と{disease}を結ぶ遺伝的証拠を評価してください：
+- GWAS所見：有意な遺伝子座、効果量、リードSNP [GWASリファレンスを引用]
+- ClinVarの病的・病的疑い変異 [ClinVarリファレンスを引用]
+- 遺伝的エビデンス信頼度：**低 / 中 / 高 / 非常に高** — 一文で根拠を示す
+
+### 1b. 機能的関連エビデンス（Functional Association）
+- {gene}の機能が{disease}の生物学とどう関連するか
+- 文献からの主要メカニズム：関連するアブストラクト所見を要約・引用 [Paper リファレンスを引用]
+- 疾患作用機序（MoA）：{gene}の疾患病態への既知・推定分子的役割
+- 機能的エビデンス信頼度：**低 / 中 / 高 / 非常に高**
+
+### 1c. 臨床的関連性（Clinical Relevance）
+- {gene}をターゲットとする既存薬・臨床候補 [ChEMBLリファレンスを引用]
+- 臨床開発段階と治療領域との重複
+- 患者集団との関連性とアンメットニーズ
+
+### 1d. 遺伝子機能とネットワークコンテキスト
+- {gene}の中核的分子機能（キナーゼ/受容体/転写因子等）[UniProtを引用]
+- 主要なタンパク質相互作用とその疾患関連性 [IntAct/SIGNORを引用]
+- ネットワーク解析のパスウェイ・GOエンリッチメント結果 [エンリッチメント結果を引用]
+- {disease}関連生物学におけるネットワークレベルの役割
+
+### 1e. ターゲット妥当性総合評価
+**総合：低 / 中 / 高 / 非常に高**
+上記4つのサブ評価を統合した一段落の総括。
+
+---
 
 ## 2. 疾患メカニズムの考察
-- {gene}の機能異常・変異が{disease}の病態生理にどう寄与するか
-- 関連する生物学的経路とネットワーク
-- 上流・下流の分子メカニズム
+- {gene}の機能異常 → {disease}表現型に至るメカニズムモデル（ステップバイステップ）
+- 文献アブストラクトによる支持エビデンス [Paperリファレンスを引用]
+- 上流活性化因子と下流エフェクター
+- 関連する生物学的経路
+
+---
 
 ## 3. 治療仮説
-以下の形式で明確かつ検証可能な仮説を述べてください：
-「{gene}に対して〔介入機序〕を行うと、〔期待される治療効果〕が得られる。これは〔メカニズムの根拠〕による。」
+以下の形式で1つの検証可能な仮説を述べてください：
+「{gene}に対して〔具体的介入〕を行うと、{disease}患者において〔期待される治療効果〕が得られる。これは〔メカニズムの根拠〕による。」
+
+---
 
 ## 4. モダリティ提案
-最適な創薬モダリティ（低分子・抗体・PROTAC・ASO・遺伝子療法など）を推奨し、以下を説明：
-- このモダリティがターゲット生物学に適合する理由
+最適な創薬モダリティ（低分子阻害薬/活性化薬・抗体・PROTAC・ASO・遺伝子療法など）を推奨：
+- ターゲット生物学に基づく根拠 [UniProt/文献を引用]
 - 主要な技術的考慮事項
 - 他のモダリティに対する優位性
 
+---
+
 ## 5. 既存薬景観とリポジショニング機会
-- {gene}をターゲットとする既存薬・化合物の概要
+- {gene}をターゲットとする薬剤・候補化合物の概要 [ChEMBLを引用]
 - リポジショニング候補または併用戦略
-- 競合状況・知的財産上の考慮
+- 競合状況上の考慮事項
+
+---
 
 ## 6. 安全性・毒性リスク評価
-- 遺伝子機能に基づくオンターゲット安全性懸念
-- オフターゲット・機序由来毒性リスク
-- 患者集団上の考慮事項
+- 遺伝子機能に基づくオンターゲット安全性懸念 [UniProt、PubChemを引用]
+- オフターゲット・機序由来毒性シグナル [副作用データを引用]
+- 患者集団上のリスク要因
+
+---
 
 ## 7. 推奨次期実験
-仮説を検証するための優先実験を3〜5件列挙（in vitro・in vivo・トランスレーショナル）：
-- 実験種別 | エンドポイント | 期待される結果
+優先度順に3〜5件の実験を列挙：
+| 実験種別 | エンドポイント | 期待される結果 |
+|---|---|---|
+| ... | ... | ... |
+
+---
 
 ## 8. 主要な不確実性・限界
-- 不足しているエビデンスは何か
-- データの代替解釈
-- 仮説に対する主要なリスク
+- エビデンスのギャップ
+- 代替仮説
+- 仮説に対する主要リスク
 
-提供されたデータに基づき具体的に記述し、科学的厳密性を保ってください。データにない情報を捏造しないでください。
+---
 
-**引用のルール:**
-- コンテキスト内の [Ref N] タグを使って根拠を本文中に引用してください（例: 「強いGWAS関連性が確認されている [Ref 3]」）。
-- 「Recent Literature」セクションのアブストラクト要約を積極的に活用し、メカニズムの考察や治療仮説の根拠として引用・要約してください。
-- レポートの末尾に「## 参考文献」セクションを追加し、引用した [Ref N] をコンテキストの References ブロックからそのまま転記してください。
-- コンテキストに存在しない参照番号を創作しないでください。
+## 参考文献
+
+### 論文（PubMed）
+（上記で引用した [Paper N] をコンテキストの References セクションからそのまま転記）
+
+### 疾患・遺伝的関連データベース
+（上記で引用した [ClinVar N]、[GWAS N]、[OpenTargets] を転記）
+
+### 遺伝子・タンパク質情報データベース
+（上記で引用した [UniProt]、[IntAct]、[SIGNOR] を転記）
+
+### 薬剤・安全性データベース
+（上記で引用した [ChEMBL N]、[PubChem] を転記）
 """
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Presentation evaluation prompts (unchanged structure, updated categories)
+# ──────────────────────────────────────────────────────────────────────────────
 PRESENTATION_EVAL_PROMPT = """You are a drug discovery expert preparing a concise slide-ready evaluation for a scientific presentation.
 
 Gene: {gene}
@@ -126,28 +243,32 @@ Evidence data:
 
 ---
 
-For each evidence category below, provide a ONE-LINE evaluation with:
+For each evidence category below, provide:
 - A rating: ✅ Strong / 🟡 Moderate / 🔴 Weak / ⬜ No data
 - One sentence of key finding (max 20 words)
 
-Output ONLY the following JSON structure (no markdown, no extra text):
+Output ONLY the following JSON (no markdown, no extra text):
 
 {{
-  "target_validity": {{
-    "rating": "✅ Strong",
-    "finding": "one sentence"
-  }},
-  "genetic_evidence": {{
+  "genetic_association": {{
     "rating": "🟡 Moderate",
-    "finding": "one sentence"
+    "finding": "GWAS/ClinVar evidence summary"
   }},
-  "disease_mechanism": {{
+  "functional_association": {{
     "rating": "✅ Strong",
-    "finding": "one sentence"
+    "finding": "Literature/MoA evidence summary"
   }},
-  "existing_drugs": {{
+  "clinical_relevance": {{
     "rating": "🟡 Moderate",
-    "finding": "one sentence"
+    "finding": "Existing drugs / clinical stage summary"
+  }},
+  "network_context": {{
+    "rating": "✅ Strong",
+    "finding": "PPI network and pathway enrichment summary"
+  }},
+  "target_validity_overall": {{
+    "rating": "✅ Strong",
+    "finding": "Overall target validity summary"
   }},
   "repositioning_potential": {{
     "rating": "⬜ No data",
@@ -168,6 +289,62 @@ Output ONLY the following JSON structure (no markdown, no extra text):
 }}
 """
 
+PRESENTATION_EVAL_PROMPT_JA = """あなたは創薬の専門家です。科学プレゼンテーション用に、各エビデンスカテゴリを簡潔に評価してください。
+
+遺伝子: {gene}
+疾患: {disease}
+
+エビデンスデータ:
+{context}
+
+---
+
+各カテゴリについて以下を日本語で提供してください：
+- 評価: ✅ 強い / 🟡 中程度 / 🔴 弱い / ⬜ データなし
+- 一文の所見（最大30字）
+
+以下のJSONのみを出力（マークダウン・余分なテキスト不要）:
+
+{{
+  "genetic_association": {{
+    "rating": "🟡 中程度",
+    "finding": "GWAS/ClinVarエビデンスの要約"
+  }},
+  "functional_association": {{
+    "rating": "✅ 強い",
+    "finding": "文献・MoAエビデンスの要約"
+  }},
+  "clinical_relevance": {{
+    "rating": "🟡 中程度",
+    "finding": "既存薬・臨床段階の要約"
+  }},
+  "network_context": {{
+    "rating": "✅ 強い",
+    "finding": "PPIネットワーク・パスウェイ解析の要約"
+  }},
+  "target_validity_overall": {{
+    "rating": "✅ 強い",
+    "finding": "ターゲット妥当性の総合要約"
+  }},
+  "repositioning_potential": {{
+    "rating": "⬜ データなし",
+    "finding": "一文"
+  }},
+  "safety_risk": {{
+    "rating": "🟡 中程度",
+    "finding": "一文"
+  }},
+  "modality_fit": {{
+    "rating": "✅ 強い",
+    "finding": "一文"
+  }},
+  "overall_confidence": {{
+    "rating": "🟡 中程度",
+    "finding": "仮説の一文要約"
+  }}
+}}
+"""
+
 
 def generate_hypothesis(
     gene: str,
@@ -179,35 +356,7 @@ def generate_hypothesis(
 ) -> str:
     template = HYPOTHESIS_PROMPT_JA if lang == "ja" else HYPOTHESIS_PROMPT_TEMPLATE
     prompt = template.format(gene=gene, disease=disease, context=context)
-    return llm_client.generate(prompt, temperature=temperature, max_tokens=4096)
-
-
-PRESENTATION_EVAL_PROMPT_JA = """あなたは創薬の専門家です。科学プレゼンテーション用に、各エビデンスカテゴリを簡潔に評価してください。
-
-遺伝子: {gene}
-疾患: {disease}
-
-エビデンスデータ:
-{context}
-
----
-
-以下の各カテゴリについて、評価と一文の所見（最大30字）を日本語で提供してください。
-評価: ✅ 強い / 🟡 中程度 / 🔴 弱い / ⬜ データなし
-
-以下のJSON構造のみを出力（マークダウン・余分なテキスト不要）:
-
-{{
-  "target_validity": {{"rating": "✅ 強い", "finding": "一文"}},
-  "genetic_evidence": {{"rating": "🟡 中程度", "finding": "一文"}},
-  "disease_mechanism": {{"rating": "✅ 強い", "finding": "一文"}},
-  "existing_drugs": {{"rating": "🟡 中程度", "finding": "一文"}},
-  "repositioning_potential": {{"rating": "⬜ データなし", "finding": "一文"}},
-  "safety_risk": {{"rating": "🟡 中程度", "finding": "一文"}},
-  "modality_fit": {{"rating": "✅ 強い", "finding": "一文"}},
-  "overall_confidence": {{"rating": "🟡 中程度", "finding": "仮説の一文要約"}}
-}}
-"""
+    return llm_client.generate(prompt, temperature=temperature, max_tokens=6000)
 
 
 def generate_presentation_eval(
@@ -220,7 +369,7 @@ def generate_presentation_eval(
     import json, re
     template = PRESENTATION_EVAL_PROMPT_JA if lang == "ja" else PRESENTATION_EVAL_PROMPT
     prompt = template.format(gene=gene, disease=disease, context=context)
-    raw = llm_client.generate(prompt, temperature=0.1, max_tokens=800)
+    raw = llm_client.generate(prompt, temperature=0.1, max_tokens=1000)
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if m:
         return json.loads(m.group())

@@ -112,14 +112,34 @@ def build_llm_context(aggregated: dict) -> str:
         f"(Each evidence item has a [Ref N] tag — cite these in your report)\n"
     ]
 
-    # Numbered reference registry; each entry holds a fully-formatted citation string.
-    refs: list[str] = []
+    # カテゴリ別リファレンスレジストリ
+    # category -> [(tag, citation_str), ...]
+    ref_categories: dict[str, list[tuple[str, str]]] = {
+        "paper":   [],   # PubMed 論文
+        "disease": [],   # ClinVar / GWAS / OpenTargets
+        "gene":    [],   # UniProt / IntAct / PubChem
+        "drug":    [],   # ChEMBL
+    }
+    ref_counters: dict[str, int] = {k: 0 for k in ref_categories}
 
-    def add_ref(citation: str) -> str:
-        """Register a formatted citation and return its [Ref N] tag."""
-        n = len(refs) + 1
-        refs.append(citation)
-        return f"[Ref {n}]"
+    CATEGORY_PREFIX = {
+        "paper":   "Paper",
+        "disease": None,   # ClinVar N / GWAS N / OpenTargets など個別プレフィックス
+        "gene":    None,   # UniProt / IntAct など個別プレフィックス
+        "drug":    "ChEMBL",
+    }
+
+    def add_ref(category: str, citation: str, prefix: str = "") -> str:
+        """Register a citation and return its typed tag e.g. [Paper 1], [ClinVar 2]."""
+        if not prefix:
+            prefix = CATEGORY_PREFIX.get(category, "Ref")
+        if prefix:
+            ref_counters[category] += 1
+            tag = f"[{prefix} {ref_counters[category]}]"
+        else:
+            tag = f"[{category}]"
+        ref_categories[category].append((tag, citation))
+        return tag
 
     # ── Gene/Protein info ──────────────────────────────────────────────────
     uni = ev.get("uniprot") or {}
@@ -132,7 +152,7 @@ def build_llm_context(aggregated: dict) -> str:
             f"Nucleic Acids Res. 2023;51(D1):D523-D531. "
             f"Entry: {gene} ({uniprot_id}). {url}"
         )
-        ref = add_ref(citation)
+        ref = add_ref("gene", citation, prefix="UniProt")
         sections.append(
             f"## Gene/Protein Information {ref}\n"
             f"- Protein: {uni.get('protein_name', 'N/A')}\n"
@@ -158,7 +178,7 @@ def build_llm_context(aggregated: dict) -> str:
             f"Target-Disease: {gene} ({ensg}) × {ot.get('disease_label', disease)} ({efo}). "
             f"{ot_url}"
         )
-        ref = add_ref(citation)
+        ref = add_ref("disease", citation, prefix="OpenTargets")
         score = ot.get("association_score")
         score_str = f"{score:.3f}" if score is not None else "Not found"
         dt_scores = ot.get("datatype_scores", {})
@@ -190,7 +210,7 @@ def build_llm_context(aggregated: dict) -> str:
                 f"Nucleic Acids Res. 2019;47(D1):D1005-D1012. "
                 f"{url}"
             )
-            ref = add_ref(citation)
+            ref = add_ref("disease", citation, prefix="GWAS")
             snps = ", ".join(h.get("snps", [])[:2])
             lines.append(
                 f"  - {h['trait']} | p={h['p_value']} | OR/Beta={h['or_beta']} "
@@ -214,7 +234,7 @@ def build_llm_context(aggregated: dict) -> str:
                 f"Clinical significance: {v.get('clinical_significance','')}. "
                 f"{url}"
             )
-            ref = add_ref(citation)
+            ref = add_ref("disease", citation, prefix="ClinVar")
             lines.append(
                 f"  - {v['title'][:70]} | {v['clinical_significance']} "
                 f"| Condition: {v['condition']} {ref}"
@@ -246,7 +266,7 @@ def build_llm_context(aggregated: dict) -> str:
                 + (f". Mechanism: {mech}" if mech else "")
                 + f". {url}"
             )
-            ref = add_ref(citation)
+            ref = add_ref("drug", citation, prefix="ChEMBL")
             lines.append(f"  - {name} | Phase: {phase} | Mechanism: {mech or 'N/A'} {ref}")
         sections.append(
             f"## Existing Drugs / Clinical Candidates Targeting {gene}\n"
@@ -267,7 +287,7 @@ def build_llm_context(aggregated: dict) -> str:
             f"Nucleic Acids Res. 2014;42(D1):D358-D363. "
             f"Query gene: {gene}. {ia_url}"
         )
-        ref = add_ref(citation)
+        ref = add_ref("gene", citation, prefix="IntAct")
         partners = []
         for ix in interactions[:10]:
             partners.extend(ix.get("partners", []))
@@ -292,7 +312,7 @@ def build_llm_context(aggregated: dict) -> str:
         f"Nucleic Acids Res. 2023;51(D1):D1373-D1380. "
         f"Gene bioassay query: {gene}. {pc_url}"
     )
-    ref_pc = add_ref(citation_pc)
+    ref_pc = add_ref("gene", citation_pc, prefix="PubChem")
     sections.append(
         f"## Toxicity / Safety Signals\n"
         f"- PubChem BioAssay {ref_pc}: {pb.get('assay_count', 0)} assays\n"
@@ -326,7 +346,7 @@ def build_llm_context(aggregated: dict) -> str:
                 + (f"PMID: {pmid}. " if pmid else "")
                 + url
             )
-            ref = add_ref(citation)
+            ref = add_ref("paper", citation, prefix="Paper")
 
             # アブストラクトを 600 字で切り詰め（LLMへのコンテキスト量を制御）
             abstract_snippet = abstract[:600] + ("..." if len(abstract) > 600 else "") \
@@ -342,12 +362,27 @@ def build_llm_context(aggregated: dict) -> str:
             + "\n".join(paper_blocks)
         )
 
-    # ── Reference list ─────────────────────────────────────────────────────
-    if refs:
-        ref_lines = [f"[Ref {i+1}] {cite}" for i, cite in enumerate(refs)]
-        sections.append(
-            "## References\n" + "\n".join(ref_lines) + "\n\n"
-            "(When writing the report, cite evidence using [Ref N] inline.)\n"
-        )
+    # ── Reference list（カテゴリ別） ──────────────────────────────────────
+    ref_section_lines = ["## References",
+                         "(Cite inline using the tags below. e.g. [Paper 1], [ClinVar 2], [OpenTargets 1])\n"]
+
+    CATEGORY_HEADERS = {
+        "paper":   "### Papers (PubMed)",
+        "disease": "### Disease & Genetic Databases  (ClinVar / GWAS / OpenTargets)",
+        "gene":    "### Gene & Protein Databases  (UniProt / IntAct / PubChem)",
+        "drug":    "### Drug Databases  (ChEMBL)",
+    }
+    any_ref = False
+    for cat, header in CATEGORY_HEADERS.items():
+        entries = ref_categories.get(cat, [])
+        if entries:
+            any_ref = True
+            ref_section_lines.append(header)
+            for tag, cite in entries:
+                ref_section_lines.append(f"{tag} {cite}")
+            ref_section_lines.append("")
+
+    if any_ref:
+        sections.append("\n".join(ref_section_lines))
 
     return "\n".join(sections)
