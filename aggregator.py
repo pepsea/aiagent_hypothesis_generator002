@@ -2,7 +2,10 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from collectors import pubmed, opentargets, intact, uniprot, gwas, chembl, toxicity
+from collectors import (
+    pubmed, opentargets, intact, uniprot, gwas, chembl, toxicity,
+    gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold, reactome,
+)
 
 MAX_RETRIES = 3          # 最大リトライ回数
 RETRY_WAIT  = [2, 5, 10]  # 待機秒数（指数バックオフ）
@@ -48,14 +51,21 @@ def collect_all(
             print(f"  [+] {msg}")
 
     tasks = {
-        "pubmed":       lambda: pubmed.search_pubmed(gene, disease, max_results=8),
-        "opentargets":  lambda: opentargets.get_target_disease_evidence(
-                            gene, disease, gene_id=gene_id, disease_id=disease_id),
-        "uniprot":      lambda: uniprot.get_protein_info(gene),
-        "intact":       lambda: intact.get_interactions(gene, max_results=15),
-        "gwas":         lambda: gwas.get_gwas_associations(gene, disease),
-        "clinvar":      lambda: gwas.get_clinvar_variants(gene),
-        "chembl":       lambda: chembl.get_drugs_for_target(gene),
+        "pubmed":          lambda: pubmed.search_pubmed(gene, disease, max_results=8),
+        "opentargets":     lambda: opentargets.get_target_disease_evidence(
+                               gene, disease, gene_id=gene_id, disease_id=disease_id),
+        "uniprot":         lambda: uniprot.get_protein_info(gene),
+        "intact":          lambda: intact.get_interactions(gene, max_results=15),
+        "gwas":            lambda: gwas.get_gwas_associations(gene, disease),
+        "clinvar":         lambda: gwas.get_clinvar_variants(gene),
+        "chembl":          lambda: chembl.get_drugs_for_target(gene),
+        "gnomad":          lambda: gnomad.get_constraint(gene),
+        "gtex":            lambda: gtex.get_tissue_expression(gene),
+        "hpa":             lambda: hpa.get_expression_profile(gene),
+        "dgidb":           lambda: dgidb.get_interactions(gene),
+        "clinicaltrials":  lambda: clinicaltrials.get_trials(gene, disease),
+        "alphafold":       lambda: alphafold.get_structure_info(gene),
+        "reactome":        lambda: reactome.get_pathways(gene),
     }
 
     results = {}
@@ -64,7 +74,7 @@ def collect_all(
     def _task(key, fn):
         return key, *_run_with_retry(fn, key, max_retries, log)
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_task, k, fn): k for k, fn in tasks.items()}
         for future in as_completed(futures):
             key, result, err = future.result()
@@ -362,15 +372,165 @@ def build_llm_context(aggregated: dict) -> str:
             + "\n".join(paper_blocks)
         )
 
+    # ── gnomAD 制約スコア ──────────────────────────────────────────────────
+    gnom = ev.get("gnomad") or {}
+    if gnom and "error" not in gnom:
+        url = gnom.get("url", "https://gnomad.broadinstitute.org/")
+        citation = (
+            f"Chen S, et al. A genomic mutational constraint map using variation in 76,156 human genomes. "
+            f"Nature. 2024;625:92-100. "
+            f"Gene: {gene} — pLI={gnom.get('pLI')}, LOEUF={gnom.get('LOEUF')}. {url}"
+        )
+        ref = add_ref("gene", citation, prefix="gnomAD")
+        sections.append(
+            f"## Population Genetics & Constraint (gnomAD) {ref}\n"
+            f"- pLI: {gnom.get('pLI')} (>0.9 = highly constrained)\n"
+            f"- LOEUF: {gnom.get('LOEUF')} (<0.35 = constrained)\n"
+            f"- Missense O/E: {gnom.get('oe_missense')}\n"
+            f"- Essentiality assessment: {gnom.get('essentiality')}\n"
+        )
+
+    # ── GTEx 組織発現 ──────────────────────────────────────────────────────
+    gtex_data = ev.get("gtex") or {}
+    if gtex_data and "error" not in gtex_data:
+        url = gtex_data.get("url", "https://gtexportal.org/")
+        citation = (
+            f"GTEx Consortium. The GTEx Consortium atlas of genetic regulatory effects across human tissues. "
+            f"Science. 2020;369(6509):1318-1330. "
+            f"Gene expression: {gene}. {url}"
+        )
+        ref = add_ref("gene", citation, prefix="GTEx")
+        top = gtex_data.get("top_tissues", [])[:5]
+        top_str = ", ".join(f"{t['tissue']} ({t['tpm']:.1f} TPM)" for t in top)
+        key = gtex_data.get("key_tissues", [])
+        key_str = "\n".join(
+            f"  - {t['tissue']}: {t['tpm']:.1f} TPM"
+            for t in key if t["tpm"] > 0
+        ) or "  N/A"
+        sections.append(
+            f"## Tissue Gene Expression (GTEx v8) {ref}\n"
+            f"- Highest expression: {gtex_data.get('max_tissue')} ({gtex_data.get('max_tpm',0):.1f} TPM)\n"
+            f"- Top 5 tissues: {top_str}\n"
+            f"- Safety-relevant tissues:\n{key_str}\n"
+        )
+
+    # ── Human Protein Atlas ────────────────────────────────────────────────
+    hpa_data = ev.get("hpa") or {}
+    if hpa_data and "error" not in hpa_data:
+        url = hpa_data.get("url", "https://www.proteinatlas.org/")
+        citation = (
+            f"Uhlén M, et al. Tissue-based map of the human proteome. "
+            f"Science. 2015;347(6220):1260419. "
+            f"Gene: {gene}. {url}"
+        )
+        ref = add_ref("gene", citation, prefix="HPA")
+        subcell = ", ".join(hpa_data.get("subcellular", [])[:5]) or "N/A"
+        prot_class = ", ".join(hpa_data.get("protein_class", [])[:5]) or "N/A"
+        tissue_lines = "\n".join(
+            f"  - {t['tissue']} / {t['cell_type']}: {t['level']} ({t['reliability']})"
+            for t in hpa_data.get("tissue_expression", [])[:8]
+        ) or "  N/A"
+        sections.append(
+            f"## Protein Expression Profile (Human Protein Atlas) {ref}\n"
+            f"- Protein class: {prot_class}\n"
+            f"- Subcellular location: {subcell}\n"
+            f"- High/Medium expression tissues:\n{tissue_lines}\n"
+        )
+
+    # ── DGIdb 薬剤-遺伝子相互作用 ─────────────────────────────────────────
+    dgi_data = ev.get("dgidb") or []
+    if dgi_data:
+        url = f"https://dgidb.org/genes/{gene}#interactions"
+        citation = (
+            f"Cannon M, et al. DGIdb 4.0: updates to the drug-gene interaction database. "
+            f"Nucleic Acids Res. 2024;52(D1):D1227-D1235. "
+            f"Gene: {gene}. {url}"
+        )
+        ref = add_ref("drug", citation, prefix="DGIdb")
+        approved = [d for d in dgi_data if d.get("approved")]
+        lines = []
+        for d in dgi_data[:8]:
+            app_str = "✓ Approved" if d.get("approved") else "Investigational"
+            i_type  = d.get("interaction_type", "")
+            direc   = d.get("directionality", "")
+            lines.append(
+                f"  - {d['drug_name']} | {app_str} | {i_type} {direc} "
+                f"| Sources: {', '.join(d.get('sources',[])[:3])}"
+            )
+        sections.append(
+            f"## Drug-Gene Interactions (DGIdb) {ref}\n"
+            f"- Total: {len(dgi_data)} interactions ({len(approved)} approved drugs)\n"
+            + "\n".join(lines) + "\n"
+        )
+
+    # ── ClinicalTrials.gov ─────────────────────────────────────────────────
+    ct_data = ev.get("clinicaltrials") or []
+    if ct_data:
+        citation = (
+            f"ClinicalTrials.gov. U.S. National Library of Medicine. "
+            f"Search: {gene} × {disease}. "
+            f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&intr={gene}"
+        )
+        ref = add_ref("disease", citation, prefix="ClinicalTrials")
+        lines = []
+        for t in ct_data[:6]:
+            ivs = ", ".join(t.get("interventions", [])[:3])
+            lines.append(
+                f"  - {t['nct_id']} | {t['phase']} | {t['status']} | {t['title'][:60]} | Interventions: {ivs}"
+            )
+        sections.append(
+            f"## Clinical Trials (ClinicalTrials.gov) {ref}\n"
+            f"- {len(ct_data)} trials found for {gene} × {disease}\n"
+            + "\n".join(lines) + "\n"
+        )
+
+    # ── AlphaFold 構造情報 ─────────────────────────────────────────────────
+    af_data = ev.get("alphafold") or {}
+    if af_data and "error" not in af_data:
+        url = af_data.get("view_url", "https://alphafold.ebi.ac.uk/")
+        citation = (
+            f"Jumper J, et al. Highly accurate protein structure prediction with AlphaFold. "
+            f"Nature. 2021;596:583-589. "
+            f"Entry: {af_data.get('entry_id','')} (UniProt: {af_data.get('uniprot_id','')}). {url}"
+        )
+        ref = add_ref("gene", citation, prefix="AlphaFold")
+        sections.append(
+            f"## Predicted 3D Structure (AlphaFold) {ref}\n"
+            f"- Entry: {af_data.get('entry_id','')}\n"
+            f"- Mean pLDDT: {af_data.get('mean_plddt')} / 100\n"
+            f"- Structural confidence: {af_data.get('confidence')}\n"
+            f"- Structure URL: {af_data.get('pdb_url','')}\n"
+        )
+
+    # ── Reactome パスウェイ ────────────────────────────────────────────────
+    react_data = ev.get("reactome") or []
+    if react_data:
+        url = f"https://reactome.org/content/query?q={gene}&species=Homo+sapiens"
+        citation = (
+            f"Milacic M, et al. The Reactome Pathway Knowledgebase 2024. "
+            f"Nucleic Acids Res. 2024;52(D1):D672-D678. "
+            f"Gene: {gene}. {url}"
+        )
+        ref = add_ref("gene", citation, prefix="Reactome")
+        disease_pw = [p for p in react_data if p.get("is_disease")]
+        all_pw     = react_data[:10]
+        lines = [f"  - {p['name']} [{p['pathway_id']}]" for p in all_pw]
+        sections.append(
+            f"## Reactome Pathways {ref}\n"
+            f"- Total pathways: {len(react_data)} "
+            f"({len(disease_pw)} disease-annotated)\n"
+            + "\n".join(lines) + "\n"
+        )
+
     # ── Reference list（カテゴリ別） ──────────────────────────────────────
     ref_section_lines = ["## References",
                          "(Cite inline using the tags below. e.g. [Paper 1], [ClinVar 2], [OpenTargets 1])\n"]
 
     CATEGORY_HEADERS = {
         "paper":   "### Papers (PubMed)",
-        "disease": "### Disease & Genetic Databases  (ClinVar / GWAS / OpenTargets)",
-        "gene":    "### Gene & Protein Databases  (UniProt / IntAct / PubChem)",
-        "drug":    "### Drug Databases  (ChEMBL)",
+        "disease": "### Disease & Genetic Databases  (ClinVar / GWAS / OpenTargets / ClinicalTrials)",
+        "gene":    "### Gene & Protein Databases  (UniProt / IntAct / gnomAD / GTEx / HPA / AlphaFold / Reactome / PubChem)",
+        "drug":    "### Drug Databases  (ChEMBL / DGIdb)",
     }
     any_ref = False
     for cat, header in CATEGORY_HEADERS.items():
