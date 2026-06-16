@@ -31,6 +31,97 @@ def _run_with_retry(fn, key: str, max_retries: int, log):
     return None, str(last_err)
 
 
+def _result_summary(key: str, result, err: str) -> tuple:
+    """Returns (status_char, detail_string) for post-collection display."""
+    if err:
+        short_err = err.split('\n')[0][:55]
+        return "✗", short_err
+    if result is None:
+        return "—", "データなし"
+    try:
+        if key == "pubmed":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} 件"
+        if key == "opentargets":
+            score = result.get("association_score")
+            n_drugs = len(result.get("known_drugs", []))
+            s = f"score={score:.3f}" if score is not None else "score=N/A"
+            return "✓", f"{s}  known_drugs={n_drugs}"
+        if key == "uniprot":
+            uid  = result.get("uniprot_id", "")
+            name = (result.get("protein_name") or "")[:45]
+            return "✓", f"{uid}  {name}"
+        if key == "intact":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} interactions"
+        if key == "gwas":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} hits"
+        if key == "clinvar":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} variants"
+        if key == "chembl":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} drugs"
+        if key == "gnomad":
+            pli   = result.get("pLI")
+            loeuf = result.get("LOEUF")
+            ess   = result.get("essentiality", "")
+            pli_s   = f"{float(pli):.3f}"   if pli   is not None else "N/A"
+            loeuf_s = f"{float(loeuf):.3f}" if loeuf is not None else "N/A"
+            return "✓", f"pLI={pli_s}  LOEUF={loeuf_s}  {ess}"
+        if key == "gtex":
+            top = result.get("top_tissues", [])
+            s = f"top: {top[0]['tissue']}({top[0]['tpm']:.0f} TPM)" if top else "no data"
+            return "✓", s
+        if key == "hpa":
+            n      = len(result.get("tissue_expression", []))
+            subcell = ", ".join(result.get("subcellular", [])[:2]) or "N/A"
+            return "✓", f"{n} tissues  loc={subcell}"
+        if key == "dgidb":
+            items    = result if isinstance(result, list) else []
+            approved = sum(1 for d in items if d.get("approved"))
+            return "✓", f"{len(items)} interactions ({approved} approved)"
+        if key == "clinicaltrials":
+            n = len(result) if isinstance(result, list) else 0
+            return "✓", f"{n} trials"
+        if key == "alphafold":
+            plddt = result.get("mean_plddt")
+            conf  = result.get("confidence", "")
+            return "✓", f"pLDDT={plddt}  {conf}"
+        if key == "reactome":
+            items   = result if isinstance(result, list) else []
+            disease = sum(1 for p in items if p.get("is_disease"))
+            return "✓", f"{len(items)} pathways ({disease} disease-related)"
+        if key == "toxicity":
+            pb      = (result or {}).get("pubchem_bioassay", {})
+            ae      = (result or {}).get("drug_adverse_events", {})
+            return "✓", f"assays={pb.get('assay_count', 0)}  AE drugs={len(ae)}"
+    except Exception:
+        pass
+    return "✓", ""
+
+
+def _trunc_at_sentence(text: str, max_chars: int) -> str:
+    """Truncate text at the last sentence boundary within max_chars.
+
+    Falls back to word boundary, then hard cut, to avoid mid-word breaks.
+    """
+    if not text or len(text) <= max_chars:
+        return text
+    window = text[:max_chars]
+    # prefer ending after '. ', '.\n', '! ', '? '
+    for sep in ('. ', '.\n', '! ', '? '):
+        idx = window.rfind(sep)
+        if idx >= int(max_chars * 0.55):
+            return window[:idx + 1]
+    # fall back to word boundary
+    idx = window.rfind(' ')
+    if idx >= int(max_chars * 0.55):
+        return window[:idx] + ' ...'
+    return window + ' ...'
+
+
 def collect_all(
     gene: str,
     disease: str,
@@ -97,6 +188,27 @@ def collect_all(
     results["toxicity"] = tox_result
     if tox_err:
         errors["toxicity"] = tox_err
+
+    # ── 収集結果サマリー ─────────────────────────────────────────────────────
+    if verbose:
+        ORDER = [
+            "pubmed", "opentargets", "uniprot", "gwas", "clinvar",
+            "chembl", "intact", "gnomad", "gtex", "hpa", "dgidb",
+            "clinicaltrials", "alphafold", "reactome", "toxicity",
+        ]
+        w = 55
+        print(f"\n  {'─'*w}")
+        print(f"  {'ソース':<16} {'状態':<3} 内容")
+        print(f"  {'─'*w}")
+        for k in ORDER:
+            st, detail = _result_summary(k, results.get(k), errors.get(k))
+            icon = "✓" if st == "✓" else ("✗" if st == "✗" else "—")
+            print(f"  {k:<16} {icon:<3} {detail}")
+        n_ok  = sum(1 for k in ORDER if k not in errors and results.get(k) is not None)
+        n_err = len(errors)
+        print(f"  {'─'*w}")
+        print(f"  完了: {n_ok}/{len(ORDER)} ソース取得成功"
+              + (f"  ⚠ エラー: {n_err}件" if n_err else ""))
 
     return {
         "gene": gene,
@@ -174,7 +286,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         full  = (f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
                  f"Nucleic Acids Res. 2023;51(D1):D523-D531. Entry: {gene} ({uid}). {url}")
         ref = add_ref("gene", "UniProt", short, full)
-        func = (uni.get("function") or "")[:cfg["uniprot_chars"]]
+        func = _trunc_at_sentence(uni.get("function") or "", cfg["uniprot_chars"])
         kws  = ", ".join(uni.get("keywords", [])[:cfg["uniprot_keywords"]]) or "N/A"
         gos  = "; ".join(g["term"] for g in uni.get("go_terms", [])[:cfg["uniprot_go_terms"]]) or "N/A"
         sections.append(
@@ -313,8 +425,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             short    = _short(authors, year, journal, pmid, url)
             full     = f"{auth_str}. {title} {journal}. {year}. PMID:{pmid}. {url}"
             ref = add_ref("paper", "Paper", short, full)
-            n = cfg["abstract_chars"]
-            snippet = abstract[:n] + ("..." if len(abstract) > n else "") \
+            snippet = _trunc_at_sentence(abstract, cfg["abstract_chars"]) \
                       if abstract else "(no abstract)"
             paper_blocks.append(
                 f"### {ref} {title[:80]} ({year})\n"
