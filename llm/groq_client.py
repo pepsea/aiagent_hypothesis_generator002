@@ -15,7 +15,7 @@ Setup:
   Get free API key: https://console.groq.com (Googleアカウントで登録可)
 """
 import os
-from typing import Optional
+from typing import Optional, Callable
 
 try:
     from groq import Groq
@@ -39,11 +39,33 @@ class GroqClient:
         self.client = Groq(api_key=key)
         self.model = model
 
-    def generate(self, prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+    def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        if stream_callback is not None:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            full_text = []
+            for chunk in stream:
+                token = chunk.choices[0].delta.content or ""
+                if token:
+                    full_text.append(token)
+                    stream_callback(token)
+            return "".join(full_text)
+        else:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content

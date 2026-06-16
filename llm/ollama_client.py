@@ -5,8 +5,9 @@ Setup:
   2. Pull model: ollama pull llama3.1
   3. Start server: ollama serve  (or it starts automatically)
 """
+import json
 import requests
-from typing import Optional
+from typing import Optional, Callable
 
 
 class OllamaClient:
@@ -14,18 +15,46 @@ class OllamaClient:
         self.model = model
         self.base_url = base_url
 
-    def generate(self, prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
-        r = requests.post(f"{self.base_url}/api/generate", json={
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            }
-        }, timeout=120)
+    def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Generate text. If stream_callback is provided, stream token-by-token."""
+        use_stream = stream_callback is not None
+        r = requests.post(
+            f"{self.base_url}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": prompt,
+                "stream": use_stream,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            },
+            stream=use_stream,
+            timeout=300,
+        )
         r.raise_for_status()
-        return r.json().get("response", "")
+
+        if use_stream:
+            full_text = []
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                token = chunk.get("response", "")
+                if token:
+                    full_text.append(token)
+                    stream_callback(token)
+                if chunk.get("done"):
+                    break
+            return "".join(full_text)
+        else:
+            return r.json().get("response", "")
 
     def is_available(self) -> bool:
         try:

@@ -13,7 +13,7 @@ Setup:
 import os
 import time
 import re
-from typing import Optional
+from typing import Optional, Callable
 
 try:
     from google import genai
@@ -37,8 +37,14 @@ class GeminiClient:
         self.client = genai.Client(api_key=key)
         self.model = model
 
-    def generate(self, prompt: str, temperature: float = 0.3, max_tokens: int = 4096,
-                 max_retries: int = 3) -> str:
+    def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        max_retries: int = 3,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
         from google.genai import types
         config = types.GenerateContentConfig(
             temperature=temperature,
@@ -46,12 +52,23 @@ class GeminiClient:
         )
         for attempt in range(max_retries):
             try:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config=config,
-                )
-                return response.text
+                if stream_callback is not None:
+                    full_text = []
+                    for chunk in self.client.models.generate_content_stream(
+                        model=self.model, contents=prompt, config=config
+                    ):
+                        token = chunk.text or ""
+                        if token:
+                            full_text.append(token)
+                            stream_callback(token)
+                    return "".join(full_text)
+                else:
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt,
+                        config=config,
+                    )
+                    return response.text
             except ClientError as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait = 65

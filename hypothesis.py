@@ -353,10 +353,14 @@ def generate_hypothesis(
     llm_client,
     temperature: float = 0.3,
     lang: str = "en",
+    stream_callback=None,
 ) -> str:
     template = HYPOTHESIS_PROMPT_JA if lang == "ja" else HYPOTHESIS_PROMPT_TEMPLATE
     prompt = template.format(gene=gene, disease=disease, context=context)
-    return llm_client.generate(prompt, temperature=temperature, max_tokens=6000)
+    kwargs = dict(temperature=temperature, max_tokens=4000)
+    if stream_callback is not None:
+        kwargs["stream_callback"] = stream_callback
+    return llm_client.generate(prompt, **kwargs)
 
 
 def generate_presentation_eval(
