@@ -2,7 +2,8 @@
 
 APIキー不要。商用利用可。
 エンドポイント: https://biit.cs.ut.ee/gprofiler/api/gost/profile/
-ソース: GO:BP, GO:MF, GO:CC, KEGG, REAC, WP
+ソース: GO:BP, GO:MF, GO:CC, REAC, WP
+  ※ KEGG・TRANSFAC(TF) 等の商用ライセンスが必要なソースは使用しない。
 """
 import requests
 

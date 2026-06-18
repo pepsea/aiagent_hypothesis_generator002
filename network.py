@@ -1,7 +1,8 @@
 """PPI ネットワーク構築 + エンリッチメント解析統合モジュール.
 
-データソース: IntAct (EMBL-EBI) + SIGNOR (UNIROMA2) + BioGRID (optional)
-エンリッチメント: g:Profiler (GO/KEGG/Reactome/WikiPathways)
+データソース: IntAct (EMBL-EBI) + SIGNOR (UNIROMA2) + Reactome（すべて CC BY 4.0・商用可）
+             BioGRID は非商用ライセンスのため任意（デフォルト無効）
+エンリッチメント: g:Profiler (GO/Reactome/WikiPathways — KEGG等の商用ソースは不使用)
 可視化: pyvis (インタラクティブHTML) または networkx/matplotlib
 """
 from __future__ import annotations
@@ -25,11 +26,15 @@ from collectors import reactome as reactome_mod
 
 def build_ppi_network(
     gene_symbol: str,
-    use_biogrid: bool = True,
+    use_biogrid: bool = False,
     biogrid_api_key: str | None = None,
     use_reactome: bool = True,
 ) -> Optional["nx.Graph"]:
-    """IntAct + SIGNOR + Reactome (+ BioGRID) の相互作用から NetworkX グラフを構築する。
+    """IntAct + SIGNOR + Reactome の相互作用から NetworkX グラフを構築する。
+
+    すべて CC BY 4.0（商用利用可）のデータソースを使用。
+    BioGRID は非商用・学術利用限定ライセンスのためデフォルト無効
+    （明示的に use_biogrid=True とした場合のみ使用）。
 
     Returns:
         nx.Graph: ノード属性に db, color, direct_partner を持つグラフ
@@ -43,35 +48,60 @@ def build_ppi_network(
     center = gene_symbol.upper()
     G.add_node(center, color="#FF6B6B", size=25, db="center", direct_partner=True)
 
+    def _item_partners(item: dict):
+        """1件の相互作用から (partner, score) のリストを返す。
+
+        2形式に対応:
+          - {"source": ..., "target": ..., "score"/"confidence": ...}  (SIGNOR/Reactome)
+          - {"partners": [...], "confidence": ...}                      (IntAct)
+        """
+        score = item.get("score", item.get("confidence", None))
+        try:
+            score = float(score) if score is not None else None
+        except (TypeError, ValueError):
+            score = None
+
+        out = []
+        src = (item.get("source") or "").strip().upper()
+        tgt = (item.get("target") or "").strip().upper()
+        if src and tgt:
+            partner = tgt if src == center else src
+            if partner and partner != center:
+                out.append((partner, score))
+        for p in item.get("partners", []) or []:
+            p = str(p).strip().upper()
+            if p and p != center:
+                out.append((p, score))
+        return out
+
     def add_edges(interactions: list[dict], source_label: str):
         for item in interactions:
-            src = (item.get("source") or "").strip().upper()
-            tgt = (item.get("target") or "").strip().upper()
-            if not src or not tgt or src == tgt:
-                continue
-            partner = tgt if src == center else src
-            if not partner:
-                continue
+            for partner, score in _item_partners(item):
+                # ノード追加
+                if partner not in G:
+                    G.add_node(partner, color=_db_color(source_label),
+                               size=15, db=source_label, direct_partner=True)
+                elif source_label not in G.nodes[partner].get("db", ""):
+                    G.nodes[partner]["db"] += f",{source_label}"
 
-            # ノード追加
-            if partner not in G:
-                G.add_node(partner, color=_db_color(source_label),
-                           size=15, db=source_label, direct_partner=True)
-            elif source_label not in G.nodes[partner].get("db", ""):
-                G.nodes[partner]["db"] += f",{source_label}"
-
-            # エッジ追加 or 属性更新
-            if G.has_edge(center, partner):
-                ed = G.edges[center, partner]
-                ed["weight"] = ed.get("weight", 1) + 1
-                if source_label not in ed.get("db", ""):
-                    ed["db"] += f",{source_label}"
-            else:
-                G.add_edge(center, partner,
-                           weight=1,
-                           effect=item.get("effect", ""),
-                           mechanism=item.get("mechanism", ""),
-                           db=source_label)
+                # エッジ追加 or 属性更新
+                if G.has_edge(center, partner):
+                    ed = G.edges[center, partner]
+                    ed["weight"] = ed.get("weight", 1) + 1
+                    ed.setdefault("dbs", set()).add(source_label)
+                    if source_label not in ed.get("db", ""):
+                        ed["db"] += f",{source_label}"
+                    if score is not None:
+                        prev = ed.get("score")
+                        ed["score"] = score if prev is None else max(prev, score)
+                else:
+                    G.add_edge(center, partner,
+                               weight=1,
+                               effect=item.get("effect", ""),
+                               mechanism=item.get("mechanism", ""),
+                               db=source_label,
+                               dbs={source_label},
+                               score=score)
 
     # --- IntAct ---
     try:
@@ -119,9 +149,36 @@ def _db_color(db: str) -> str:
     return {
         "IntAct":   "#4ECDC4",
         "SIGNOR":   "#45B7D1",
-        "BioGRID":  "#96CEB4",
         "Reactome": "#FFB347",
+        "BioGRID":  "#96CEB4",
     }.get(db, "#DDD")
+
+
+def _n_distinct_dbs(edge: dict) -> int:
+    """エッジが何種類のDBで裏付けられているか。"""
+    dbs = edge.get("dbs")
+    if not dbs:
+        dbs = {d for d in (edge.get("db", "") or "").split(",") if d}
+    return len(dbs)
+
+
+def rank_partners(G: "nx.Graph", center: str) -> list[str]:
+    """PPIパートナーを優先度順に並べて返す。
+
+    優先順位（降順）:
+      1. 複数DBで共通する遺伝子（裏付けDB数が多いほど上位）
+      2. スコアが高いもの（IntAct intactScore / SIGNOR score など）
+      3. エッジの重み（観測された相互作用の回数）
+    """
+    def key(n):
+        ed = G.edges[center, n]
+        n_db  = _n_distinct_dbs(ed)
+        score = ed.get("score")
+        score = score if score is not None else -1.0
+        weight = ed.get("weight", 1)
+        return (n_db, score, weight)
+
+    return sorted(G.neighbors(center), key=key, reverse=True)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -183,12 +240,8 @@ def visualize_network_plotly(
 
     center = gene_symbol.upper()
 
-    # ── 上位 max_nodes 件に絞ったサブグラフ ─────────────────────────────
-    neighbors = sorted(
-        G.neighbors(center),
-        key=lambda n: G.edges[center, n].get("weight", 1),
-        reverse=True,
-    )[:max_nodes]
+    # ── 上位 max_nodes 件に絞ったサブグラフ（DB共通数→スコア→重み順） ──
+    neighbors = rank_partners(G, center)[:max_nodes]
     visible = {center} | set(neighbors)
     subG = G.subgraph(visible)
 
@@ -366,12 +419,8 @@ def render_ppi_image(
     if center not in G:
         return None
 
-    # ── 上位パートナーをエッジ重み順に抽出 ───────────────────────────
-    neighbors = sorted(
-        G.neighbors(center),
-        key=lambda n: G.edges[center, n].get("weight", 1),
-        reverse=True,
-    )[:max_nodes]
+    # ── 上位パートナーを抽出（DB共通数→スコア→重み順、最大 max_nodes 件） ──
+    neighbors = rank_partners(G, center)[:max_nodes]
     if not neighbors:
         return None
 
@@ -461,7 +510,7 @@ def network_summary_for_llm(
         return ""
 
     center = gene_symbol.upper()
-    partners = [n for n in G.neighbors(center)][:max_partners]
+    partners = rank_partners(G, center)[:max_partners]
     n_nodes  = G.number_of_nodes()
     n_edges  = G.number_of_edges()
 
