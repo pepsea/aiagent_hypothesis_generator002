@@ -66,3 +66,62 @@ def get_disease_pathways(gene_symbol: str, uniprot_id: str = "") -> list[dict]:
     """Return only disease-annotated pathways."""
     all_pathways = get_pathways(gene_symbol, uniprot_id, top_n=50)
     return [p for p in all_pathways if p["is_disease"]]
+
+
+def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
+    """Return physical interactions from Reactome ContentService.
+
+    Uses /data/interactors/static/proteins/{gene} endpoint which returns
+    curated physical interaction data from Reactome.
+
+    Returns:
+        [{"source": gene_symbol, "target": partner, "effect": "", "mechanism": "Reactome"}]
+    """
+    center = gene_symbol.upper()
+
+    # まず UniProt ID を解決（Reactome は UniProt accession で検索）
+    uid = ""
+    try:
+        r0 = requests.get("https://rest.uniprot.org/uniprotkb/search", params={
+            "query": f"gene_exact:{gene_symbol} AND organism_id:9606 AND reviewed:true",
+            "fields": "accession",
+            "format": "json",
+            "size": 1,
+        }, timeout=10)
+        r0.raise_for_status()
+        results = r0.json().get("results", [])
+        uid = results[0]["primaryAccession"] if results else ""
+    except Exception:
+        pass
+
+    if not uid:
+        return []
+
+    try:
+        r = requests.get(
+            f"{REACTOME_API}/data/interactors/static/proteins/{uid}",
+            params={"page": 1, "pageSize": max_results},
+            timeout=20,
+        )
+        if r.status_code == 404:
+            return []
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return []
+
+    interactions = []
+    for entry in data.get("entities", []):
+        for interactor in entry.get("interactors", []):
+            # gene名を取得（なければ accession をフォールバック）
+            partner = (interactor.get("geneName") or interactor.get("acc") or "").strip().upper()
+            if not partner or partner == center:
+                continue
+            interactions.append({
+                "source":    center,
+                "target":    partner,
+                "effect":    "",
+                "mechanism": "Reactome",
+            })
+
+    return interactions

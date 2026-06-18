@@ -16,6 +16,7 @@ except ImportError:
     HAS_NX = False
 
 from collectors import intact, signor, biogrid, enrichment as enrich_mod
+from collectors import reactome as reactome_mod
 
 
 # ──────────────────────────────────────────────────────────────
@@ -26,8 +27,9 @@ def build_ppi_network(
     gene_symbol: str,
     use_biogrid: bool = True,
     biogrid_api_key: str | None = None,
+    use_reactome: bool = True,
 ) -> Optional["nx.Graph"]:
-    """IntAct + SIGNOR (+ BioGRID) の相互作用から NetworkX グラフを構築する。
+    """IntAct + SIGNOR + Reactome (+ BioGRID) の相互作用から NetworkX グラフを構築する。
 
     Returns:
         nx.Graph: ノード属性に db, color, direct_partner を持つグラフ
@@ -99,15 +101,26 @@ def build_ppi_network(
         except Exception as e:
             print(f"  [BioGRID] エラー: {e}")
 
+    # --- Reactome ---
+    if use_reactome:
+        try:
+            print("  Reactome 取得中...")
+            rc_data = reactome_mod.get_interactions(gene_symbol)
+            add_edges(rc_data, "Reactome")
+            print(f"  Reactome: {len(rc_data)} 件")
+        except Exception as e:
+            print(f"  [Reactome] エラー: {e}")
+
     print(f"  ネットワーク: {G.number_of_nodes()} ノード / {G.number_of_edges()} エッジ")
     return G
 
 
 def _db_color(db: str) -> str:
     return {
-        "IntAct":  "#4ECDC4",
-        "SIGNOR":  "#45B7D1",
-        "BioGRID": "#96CEB4",
+        "IntAct":   "#4ECDC4",
+        "SIGNOR":   "#45B7D1",
+        "BioGRID":  "#96CEB4",
+        "Reactome": "#FFB347",
     }.get(db, "#DDD")
 
 
@@ -330,7 +343,7 @@ def render_ppi_image(
     gene_symbol: str,
     out_path: str,
     enrichment: dict | None = None,
-    max_nodes: int = 24,
+    max_nodes: int = 30,
     dpi: int = 130,
 ) -> str | None:
     """PPI ネットワークを静的 PNG として保存する（レポート埋め込み用）。
