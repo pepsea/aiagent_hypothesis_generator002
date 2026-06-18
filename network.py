@@ -265,13 +265,16 @@ def render_ppi_image(
         y = 0.55 - (r / max(1, rows)) * 0.55 + jitter
         pos[node] = (x, y)
 
-    # ── パスウェイ色分け（enrichment があれば上位5件） ───────────────
-    PALETTE = ["#FFD700", "#FF8C00", "#7B68EE", "#20B2AA", "#FF69B4"]
-    pw_color: dict[str, str] = {}
-    if enrichment:
-        for i, term in enumerate(enrichment.get("results", [])[:5]):
-            for g in term.get("genes", []):
-                pw_color.setdefault(g.upper(), PALETTE[i % len(PALETTE)])
+    # ── DB別の色分け（複数DB共通はハイライト） ──────────────────────
+    MULTI_COLOR = "#8E44AD"  # 2つ以上のDBで共通 = 高信頼
+
+    def node_db_color(node: str) -> str:
+        ed = G.edges[center, node]
+        dbs = ed.get("dbs") or {d for d in (ed.get("db", "") or "").split(",") if d}
+        if len(dbs) >= 2:
+            return MULTI_COLOR
+        only = next(iter(dbs)) if dbs else ""
+        return _db_color(only)
 
     fig, ax = plt.subplots(figsize=(8.5, 6.0))
     ax.set_xlim(-0.05, 1.05)
@@ -285,10 +288,17 @@ def render_ppi_image(
         ax.plot([cx, nx_], [cy, ny_], color="#C8C8C8", lw=0.8, zorder=1)
 
     # パートナーノード
+    used_dbs = set()
+    has_multi = False
     for node in neighbors:
         x, y = pos[node]
-        color = pw_color.get(node, "#4ECDC4")
-        ax.scatter([x], [y], s=320, c=color, edgecolors="#222",
+        ed = G.edges[center, node]
+        dbs = ed.get("dbs") or {d for d in (ed.get("db", "") or "").split(",") if d}
+        if len(dbs) >= 2:
+            has_multi = True
+        else:
+            used_dbs |= dbs
+        ax.scatter([x], [y], s=320, c=node_db_color(node), edgecolors="#222",
                    linewidths=0.8, zorder=2)
         ax.text(x, y - 0.055, node, ha="center", va="top",
                 fontsize=7.5, color="#222", zorder=3)
@@ -298,6 +308,20 @@ def render_ppi_image(
                edgecolors="#222", linewidths=1.0, zorder=4)
     ax.text(cx, cy + 0.06, center, ha="center", va="bottom",
             fontsize=12, fontweight="bold", color="#B22222", zorder=5)
+
+    # 凡例（DBソース）
+    from matplotlib.lines import Line2D
+    handles = [Line2D([0], [0], marker="*", color="w", label=f"{gene_symbol} (target)",
+                      markerfacecolor="#FF6B6B", markeredgecolor="#222", markersize=15)]
+    for db in ("IntAct", "SIGNOR", "Reactome", "BioGRID"):
+        if db in used_dbs:
+            handles.append(Line2D([0], [0], marker="o", color="w", label=db,
+                                  markerfacecolor=_db_color(db), markeredgecolor="#222", markersize=9))
+    if has_multi:
+        handles.append(Line2D([0], [0], marker="o", color="w", label="multiple DBs",
+                              markerfacecolor=MULTI_COLOR, markeredgecolor="#222", markersize=9))
+    ax.legend(handles=handles, loc="upper right", fontsize=8, frameon=True,
+              framealpha=0.9, edgecolor="#CCC")
 
     ax.set_title(
         f"PPI Network — {gene_symbol}  "

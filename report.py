@@ -127,8 +127,9 @@ def ppi_md(gene: str, image_filename: str) -> str:
     return (
         f"## PPI Network\n\n"
         f"![PPI network of {gene}]({image_filename})\n\n"
-        f"<sub><sup>★ = {gene} (target, 上部) ／ 下部 = PPI パートナー"
-        f"（色 = enrichment 上位パスウェイ）</sup></sub>\n\n"
+        f"<sub><sup>★ = {gene} (target, 上部) ／ 下部 = PPI パートナー。"
+        f"色 = データソース（IntAct / SIGNOR / Reactome、複数DB共通は強調色）"
+        f"</sup></sub>\n\n"
     )
 
 
