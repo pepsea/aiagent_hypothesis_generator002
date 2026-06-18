@@ -21,20 +21,27 @@ class OllamaClient:
         temperature: float = 0.3,
         max_tokens: int = 4096,
         stream_callback: Optional[Callable[[str], None]] = None,
+        format: Optional[str] = None,
     ) -> str:
-        """Generate text. If stream_callback is provided, stream token-by-token."""
+        """Generate text. If stream_callback is provided, stream token-by-token.
+
+        format="json" forces Ollama to emit syntactically valid JSON.
+        """
         use_stream = stream_callback is not None
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": use_stream,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        if format:
+            payload["format"] = format
         r = requests.post(
             f"{self.base_url}/api/generate",
-            json={
-                "model": self.model,
-                "prompt": prompt,
-                "stream": use_stream,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens,
-                },
-            },
+            json=payload,
             stream=use_stream,
             timeout=300,
         )

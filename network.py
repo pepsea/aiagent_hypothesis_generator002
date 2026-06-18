@@ -325,6 +325,104 @@ def visualize_network_plotly(
     return fig
 
 
+def render_ppi_image(
+    G: "nx.Graph",
+    gene_symbol: str,
+    out_path: str,
+    enrichment: dict | None = None,
+    max_nodes: int = 24,
+    dpi: int = 130,
+) -> str | None:
+    """PPI ネットワークを静的 PNG として保存する（レポート埋め込み用）。
+
+    レイアウト: 対象遺伝子を上部中央、PPI パートナーを下部に散らして配置。
+    Returns: 保存した PNG パス（成功時）、None（依存欠如・データなし時）。
+    """
+    if G is None or not HAS_NX:
+        return None
+    try:
+        import math
+        import matplotlib
+        matplotlib.use("Agg")  # GUI 不要のバックエンド
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("  [PPI image] matplotlib 未インストール: pip install matplotlib")
+        return None
+
+    center = gene_symbol.upper()
+    if center not in G:
+        return None
+
+    # ── 上位パートナーをエッジ重み順に抽出 ───────────────────────────
+    neighbors = sorted(
+        G.neighbors(center),
+        key=lambda n: G.edges[center, n].get("weight", 1),
+        reverse=True,
+    )[:max_nodes]
+    if not neighbors:
+        return None
+
+    # ── レイアウト: 中心を上部、パートナーを下部に散らす ─────────────
+    pos = {center: (0.5, 1.06)}
+    n = len(neighbors)
+    cols = max(1, math.ceil(math.sqrt(n * 1.8)))   # 横長に散らす
+    rows = math.ceil(n / cols)
+    for i, node in enumerate(neighbors):
+        r, c = divmod(i, cols)
+        # 列方向に均等配置 + 行ごとに段差、わずかなジッターでばらけさせる
+        x = (c + 0.5) / cols
+        jitter = 0.04 * (1 if (i % 2 == 0) else -1)
+        y = 0.55 - (r / max(1, rows)) * 0.55 + jitter
+        pos[node] = (x, y)
+
+    # ── パスウェイ色分け（enrichment があれば上位5件） ───────────────
+    PALETTE = ["#FFD700", "#FF8C00", "#7B68EE", "#20B2AA", "#FF69B4"]
+    pw_color: dict[str, str] = {}
+    if enrichment:
+        for i, term in enumerate(enrichment.get("results", [])[:5]):
+            for g in term.get("genes", []):
+                pw_color.setdefault(g.upper(), PALETTE[i % len(PALETTE)])
+
+    fig, ax = plt.subplots(figsize=(8.5, 6.0))
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.15, 1.20)
+    ax.axis("off")
+
+    # エッジ（中心 → 各パートナー）
+    cx, cy = pos[center]
+    for node in neighbors:
+        nx_, ny_ = pos[node]
+        ax.plot([cx, nx_], [cy, ny_], color="#C8C8C8", lw=0.8, zorder=1)
+
+    # パートナーノード
+    for node in neighbors:
+        x, y = pos[node]
+        color = pw_color.get(node, "#4ECDC4")
+        ax.scatter([x], [y], s=320, c=color, edgecolors="#222",
+                   linewidths=0.8, zorder=2)
+        ax.text(x, y - 0.055, node, ha="center", va="top",
+                fontsize=7.5, color="#222", zorder=3)
+
+    # 中心ノード（星）
+    ax.scatter([cx], [cy], s=900, c="#FF6B6B", marker="*",
+               edgecolors="#222", linewidths=1.0, zorder=4)
+    ax.text(cx, cy + 0.06, center, ha="center", va="bottom",
+            fontsize=12, fontweight="bold", color="#B22222", zorder=5)
+
+    ax.set_title(
+        f"PPI Network — {gene_symbol}  "
+        f"({G.number_of_nodes()} nodes / {G.number_of_edges()} edges; "
+        f"showing top {len(neighbors)})",
+        fontsize=11, color="#222",
+    )
+
+    import os
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    fig.savefig(out_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path
+
+
 # 後方互換エイリアス（旧 pyvis 版が呼ばれた場合でもエラーにならないように）
 def visualize_network_pyvis(G, gene_symbol, enrichment=None, output_path="reports/ppi_network.html", max_nodes=30):
     print("⚠ visualize_network_pyvis は非推奨です。visualize_network_plotly を使用してください。")
