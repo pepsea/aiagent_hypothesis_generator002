@@ -8,8 +8,8 @@
 ## 1. 概要
 
 - 入力: 疾患名（1件）と対象遺伝子リスト（複数可）
-- 処理: 15以上の公開DBからエビデンスを収集 → PPIネットワーク・機能解析 → LLMで仮説生成・評価
-- 出力: 遺伝子ごとの Markdown レポート（評価表・PPI図・エンリッチメント・仮説本文）＋ バッチサマリー
+- 処理: 15以上の公開DBからエビデンスを収集 → PPIネットワーク・機能解析 → LLMで仮説生成
+- 出力: 遺伝子ごとの Markdown レポート（PPI図・エンリッチメント・仮説本文）＋ バッチサマリー
 - 特徴:
   - 完全ローカル LLM（API課金なし、データ外部送信なし）
   - 使用データは原則 **CC BY 4.0（商用利用可）**。KEGG / TRANSFAC / BioGRID 等の商用・非商用限定ソースは既定で不使用
@@ -28,7 +28,7 @@ batch_hypothesis_generator.ipynb   ← UI（疾患選択・遺伝子入力・実
    ▼    ▼             ▼               ▼              ▼
 aggregator   network        hypothesis        report      llm/
  (収集+      (PPI+          (プロンプト+      (Markdown/   ollama_client
-  整形)       enrichment)    LLM生成+評価)     HTML整形)    (LLM呼び出し)
+  整形)       enrichment)    LLM生成)        HTML整形)    (LLM呼び出し)
    │
    ▼
 collectors/ × 18                   ← 各DBのAPIラッパー（単一責務）
@@ -41,8 +41,8 @@ collectors/ × 18                   ← 各DBのAPIラッパー（単一責務�
 | `collectors/*.py` | 各DB APIを叩き、辞書/リストで返す薄いラッパー |
 | `aggregator.py` | 全コレクターを並列実行（`collect_all`）／ LLM用コンテキスト整形（`build_llm_context`） |
 | `network.py` | PPIネットワーク構築・パートナー順位付け・エンリッチメント・PNG描画 |
-| `hypothesis.py` | プロンプト定義・仮説本文生成・Target Validity 評価生成 |
-| `report.py` | 評価表・エンリッチメント表・サマリーの Markdown / HTML 生成（文字列のみ） |
+| `hypothesis.py` | プロンプト定義・仮説本文生成 |
+| `report.py` | エンリッチメント表・サマリーの Markdown / HTML 生成（文字列のみ） |
 | `pipeline.py` | 1遺伝子の処理（`process_gene`）とバッチ実行（`run_batch`）・保存 |
 | `llm/ollama_client.py` | Ollama への HTTP 呼び出し（ストリーミング・JSON強制に対応） |
 
@@ -94,11 +94,8 @@ collectors/ × 18                   ← 各DBのAPIラッパー（単一責務�
    - 収集結果を引用タグ付きの構造化テキストに変換
 5. **仮説生成** `hypothesis.generate_hypothesis`
    - レポート本文（8セクション）をストリーミング生成
-6. **Target Validity 評価** `hypothesis.generate_presentation_eval`
-   - **生成した本文の結論に基づき**評価（表と本文を一致させる）
-   - Ollama の `format="json"` で JSON を強制取得し、表記ゆれを正規化
-7. **レポート保存** `pipeline._save_report`
-   - Markdown 本体 + PPI画像(PNG) + eval/raw JSON を保存
+6. **レポート保存** `pipeline._save_report`
+   - Markdown 本体 + PPI画像(PNG) + raw JSON を保存
 
 ---
 
@@ -119,8 +116,6 @@ collectors/ × 18                   ← 各DBのAPIラッパー（単一責務�
 ```
 # Drug Discovery Hypothesis: GENE × DISEASE
 ---
-## Target Validity              ← 評価表（VH/H/M/L、本文の結論と一致）
----
 ## PPI Network                  ← PNG（★=対象遺伝子が上部、パートナーが下部）
 ## Functional Enrichment        ← ソース別テーブル（GO/Reactome/WikiPathways…）
 ---
@@ -131,24 +126,11 @@ collectors/ × 18                   ← 各DBのAPIラッパー（単一責務�
 
 同フォルダに以下も保存:
 - `{timestamp}_ppi.png` … PPIネットワーク画像
-- `{timestamp}_eval.json` … 評価結果
 - `{timestamp}_raw.json` … 収集した生データ
-
-### Target Validity 評価基準（4段階）
-
-| 略号 | 基準 |
-|---|---|
-| **VH** (Very High) | 遺伝子と疾患の関連が明確、かつ疾患の悪性度・進行と関連 |
-| **H** (High) | 関連が明確。遺伝子の機能・パスウェイが疾患機序と直接関連 |
-| **M** (Middle) | 直接の関連情報はないが、PPI/パスウェイ重複で説明可能 |
-| **L** (Low) | 関連情報なし |
-
-評価項目: Genetic Association / Functional Association / Clinical Relevance /
-Expression・Network / Overall（本文 Section 1 の 1a〜1e に対応）
 
 ### バッチサマリー `reports/{DISEASE}_summary_{timestamp}.md`
 
-行 = 評価項目、列 = 遺伝子 の一覧表（HTMLでも画面表示）。
+遺伝子ごとの処理結果（ステータス・レポートパス）の一覧（HTMLでも画面表示）。
 
 ---
 

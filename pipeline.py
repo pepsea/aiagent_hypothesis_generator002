@@ -6,8 +6,7 @@
   3. run_network_enrichment : g:Profiler で機能エンリッチメント
   4. build_llm_context  : 収集結果を LLM 用コンテキストに整形
   5. generate_hypothesis: 仮説レポート本文を生成
-  6. generate_presentation_eval : 本文に基づく Target Validity 評価
-  7. build_report       : Markdown レポートを組み立てて保存
+  6. build_report       : Markdown レポートを組み立てて保存
 """
 from __future__ import annotations
 
@@ -46,7 +45,7 @@ def process_gene(
         evidence = aggregator.collect_all(gene, disease, verbose=verbose, disease_id=disease_id)
     except Exception as e:
         log(f"  ✗ データ収集失敗: {e}")
-        return {"gene": gene, "status": f"データ収集失敗: {e}", "eval": {}}
+        return {"gene": gene, "status": f"データ収集失敗: {e}"}
 
     # 2-3. PPI ネットワーク + エンリッチメント
     ppi_graph, enrichment = _build_network(gene, log)
@@ -65,21 +64,12 @@ def process_gene(
         log(f"\n  ✓ 仮説生成完了 ({len(hypothesis):,} 文字)")
     except Exception as e:
         log(f"\n  ✗ 仮説生成失敗: {e}")
-        return {"gene": gene, "status": f"仮説生成失敗: {e}", "eval": {}}
+        return {"gene": gene, "status": f"仮説生成失敗: {e}"}
 
-    # 6. 評価（本文に基づく）
-    log("  評価カード生成中...")
-    try:
-        eval_result = hyp.generate_presentation_eval(
-            gene, disease, context, llm, lang=lang, hypothesis=hypothesis) or {}
-    except Exception as e:
-        log(f"  ⚠ 評価カード生成エラー: {e}")
-        eval_result = {}
-
-    # 7. レポート保存
-    path = _save_report(gene, disease, lang, eval_result, hypothesis, context,
+    # 6. レポート保存
+    path = _save_report(gene, disease, lang, hypothesis, context,
                         evidence, ppi_graph, enrichment, log)
-    return {"gene": gene, "status": "✓ 完了", "eval": eval_result, "path": str(path)}
+    return {"gene": gene, "status": "✓ 完了", "path": str(path)}
 
 
 def run_batch(
@@ -126,9 +116,9 @@ def _build_network(gene: str, log):
         return None, {}
 
 
-def _save_report(gene, disease, lang, eval_result, hypothesis, context,
+def _save_report(gene, disease, lang, hypothesis, context,
                  evidence, ppi_graph, enrichment, log) -> Path:
-    """レポート（.md）と付随データ（eval/raw JSON, PPI画像）を保存し、md パスを返す。"""
+    """レポート（.md）と付随データ（raw JSON, PPI画像）を保存し、md パスを返す。"""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     pair_dir = REPORTS_DIR / f"{gene}_{disease.replace(' ', '_')}"
     pair_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +134,7 @@ def _save_report(gene, disease, lang, eval_result, hypothesis, context,
 
     # レポート本体
     md = report.build_report(
-        gene, disease, lang, eval_result, hypothesis, context,
+        gene, disease, lang, hypothesis, context,
         generated_iso=datetime.now().isoformat(),
         ppi_section=ppi_section,
         enrichment_section=report.enrichment_md(enrichment),
@@ -152,10 +142,7 @@ def _save_report(gene, disease, lang, eval_result, hypothesis, context,
     rpt_path = pair_dir / f"{ts}_{'JA' if lang == 'ja' else 'EN'}.md"
     rpt_path.write_text(md, encoding="utf-8")
 
-    # 付随 JSON
-    if eval_result:
-        (pair_dir / f"{ts}_eval.json").write_text(
-            json.dumps(eval_result, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 付随 JSON（生データ）
     (pair_dir / f"{ts}_raw.json").write_text(
         json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
