@@ -86,12 +86,15 @@ def build_report(
         f"# Drug Discovery Hypothesis: {gene} × {disease}",
         f"Generated: {generated_iso}  |  Language: {lang}",
         "", "---", "",
+        hypothesis, "",
     ]
-    if ppi_section:
-        parts.append(ppi_section)
-    if enrichment_section:
-        parts += [enrichment_section, "---", ""]
-    parts += [hypothesis, "", "---", "", "## Evidence Context", "", context]
+    if ppi_section or enrichment_section:
+        parts += ["---", "", "## Supporting Evidence", ""]
+        if ppi_section:
+            parts.append(ppi_section)
+        if enrichment_section:
+            parts.append(enrichment_section)
+    parts += ["---", "", "## Evidence Context", "", context]
     return "\n".join(parts)
 
 

@@ -116,10 +116,11 @@ collectors/ × 18                   ← 各DBのAPIラッパー（単一責務�
 ```
 # Drug Discovery Hypothesis: GENE × DISEASE
 ---
-## PPI Network                  ← PNG（★=対象遺伝子が上部、パートナーが下部）
-## Functional Enrichment        ← ソース別テーブル（GO/Reactome/WikiPathways…）
----
 ## 1〜8（仮説本文）             ← 妥当性/機序/治療仮説/モダリティ/既存薬/安全性/実験/不確実性
+---
+## Supporting Evidence
+  ## PPI Network                ← PNG（★=対象遺伝子が上部、パートナーが下部）
+  ## Functional Enrichment      ← ソース別テーブル（GO/Reactome/WikiPathways…）
 ---
 ## Evidence Context             ← LLMに渡した根拠（引用タグ付き）
 ```
