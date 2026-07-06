@@ -400,7 +400,7 @@ def analyze():
 
             send("gene_done", gene=gene, path=str(rpt_path),
                  ppi_image=ppi_image_rel, partners=partners,
-                 enrichment_results=(enrichment or {}).get("results", [])[:20])
+                 enrichment_results=(enrichment or {}).get("results", [])[:100])
 
         send("batch_done", total=len(genes))
         q.put(None)  # sentinel

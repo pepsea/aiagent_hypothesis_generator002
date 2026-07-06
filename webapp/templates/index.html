@@ -660,30 +660,65 @@ function finalizeGene(gene, ev) {
 }
 
 function renderEnrichment(results) {
+  const SRC_ORDER = ["GO:BP","GO:MF","GO:CC","REAC","WP","HP","CORUM"];
+  const srcLabel = {
+    "GO:BP":"GO Biological Process","GO:MF":"GO Molecular Function",
+    "GO:CC":"GO Cellular Component","REAC":"Reactome","WP":"WikiPathways",
+    "HP":"Human Phenotype","CORUM":"Protein Complexes"
+  };
+
   const bySrc = {};
   results.forEach(r => {
     if (!bySrc[r.source]) bySrc[r.source] = [];
     bySrc[r.source].push(r);
   });
-  const srcLabel = {"GO:BP":"GO Biological Process","GO:MF":"GO Molecular Function",
-                    "GO:CC":"GO Cellular Component","REAC":"Reactome","WP":"WikiPathways"};
+
+  const ordered = [...SRC_ORDER.filter(s => bySrc[s]),
+                   ...Object.keys(bySrc).filter(s => !SRC_ORDER.includes(s))];
+
+  if (!ordered.length)
+    return '<span style="color:var(--text-sub);font-size:13px;">有意な項目なし (FDR&lt;0.05)</span>';
+
   let html = "";
-  for (const [src, terms] of Object.entries(bySrc)) {
-    html += `<div class="enr-source">${srcLabel[src] || src}</div>
+  for (const src of ordered) {
+    const terms = bySrc[src].slice(0, 10);  // Top 10 per source
+    html += `<div class="enr-source">${srcLabel[src] || src}
+               <span style="font-size:11px;font-weight:400;color:var(--text-sub);margin-left:6px;">
+                 Top ${terms.length} / ${bySrc[src].length} 有意項目
+               </span>
+             </div>
     <table class="enr-table">
-      <thead><tr><th>Term</th><th>p-value</th><th>Genes (overlap)</th></tr></thead>
+      <thead><tr>
+        <th style="width:32%">Term</th>
+        <th style="width:10%">FDR q値</th>
+        <th style="width:8%">重複/<br>遺伝子数</th>
+        <th>ヒット遺伝子・分子</th>
+      </tr></thead>
       <tbody>`;
-    terms.slice(0,5).forEach(t => {
-      const genes = (t.genes || []).slice(0,6).join(", ");
+    terms.forEach(t => {
+      const geneList = (t.genes || t.intersections || []);
+      const n = t.intersection_size || geneList.length || 0;
+      const total = t.term_size || "?";
+      // render as clickable tags
+      const tags = geneList.map(g =>
+        `<span style="display:inline-block;background:#eff6ff;border:1px solid #bfdbfe;
+                      border-radius:4px;padding:1px 6px;margin:1px;font-size:11px;
+                      font-family:monospace;">${esc(g)}</span>`
+      ).join("");
+      const qval = (t.p_adjusted ?? t.q_value ?? t.p_value ?? 0);
       html += `<tr>
-        <td>${t.term_name.slice(0,65)} <small style="color:var(--text-sub)">${t.term_id||""}</small></td>
-        <td class="pval">${t.p_value.toExponential(2)}</td>
-        <td>${genes} (${t.intersection_size||0})</td>
+        <td>
+          <div style="font-weight:500;">${esc((t.term_name||"").slice(0, 80))}</div>
+          <div style="font-size:11px;color:var(--text-sub);">${esc(t.term_id||"")}</div>
+        </td>
+        <td class="pval" style="white-space:nowrap;">${(+qval).toExponential(2)}</td>
+        <td style="text-align:center;">${n} / ${total}</td>
+        <td style="line-height:1.8;">${tags || '<span style="color:var(--text-sub)">—</span>'}</td>
       </tr>`;
     });
     html += "</tbody></table>";
   }
-  return html || '<span style="color:var(--text-sub);font-size:13px;">有意な項目なし (FDR<0.05)</span>';
+  return html;
 }
 
 // ── Collector grid ─────────────────────────────────────────────────────────
