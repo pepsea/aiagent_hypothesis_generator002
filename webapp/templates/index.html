@@ -488,7 +488,9 @@ function handleEvent(ev) {
       updateCollectorChip(ev.gene, ev.source, ev.ok, ev.summary, ev.data);
       logMsg(`  ${ev.gene} [${ev.source}] ${ev.ok ? "✓" : "✗"} ${ev.summary}`); break;
     case "progress":
-      logMsg(`  ${ev.gene}: ${ev.message}`); break;
+      logMsg(`  ${ev.gene}: ${ev.message}`);
+      if (ev.step === "llm") switchToHypothesisTab(ev.gene);
+      break;
     case "ppi_done":
       logMsg(`  ${ev.gene}: PPI ${ev.nodes}nodes / ${ev.edges}edges`, "ok");
       if (ev.partners && ev.partners.length) renderPartners(ev.gene, ev.partners);
@@ -567,6 +569,19 @@ function showTab(cardId, tab, e) {
 function setGeneStatus(gene, cls, text) {
   const el = document.getElementById(cardId(gene) + "-status");
   if (el) { el.className = `gene-status ${cls}`; el.textContent = text; }
+}
+
+function switchToHypothesisTab(gene) {
+  const id = cardId(gene);
+  const tabs = document.querySelectorAll(`#${id} .tab-btn`);
+  const contents = document.querySelectorAll(`#${id} .tab-content`);
+  if (!tabs.length) return;
+  tabs.forEach(b => b.classList.remove("active"));
+  contents.forEach(c => c.classList.remove("active"));
+  tabs[0].classList.add("active");   // "仮説" tab
+  const hyp = document.getElementById(`${id}-hyp`);
+  if (hyp) hyp.classList.add("active");
+  setGeneStatus(gene, "running", "仮説生成中...");
 }
 
 function appendToken(gene, tok) {
