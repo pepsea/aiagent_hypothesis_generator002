@@ -20,13 +20,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, request, jsonify, Response, send_from_directory
 import requests as _requests
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import aggregator
-import pipeline
 import report as rpt
 import network as net
 import hypothesis as hyp
 from llm.ollama_client import OllamaClient
-from collectors import opentargets as ot_mod
+from collectors import (
+    pubmed, opentargets, uniprot, intact, gwas, chembl,
+    gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
+    reactome, toxicity,
+)
 
 app = Flask(__name__)
 
@@ -117,6 +122,129 @@ def validate_genes():
     return jsonify({"results": results})
 
 
+# ─── Collector helpers ────────────────────────────────────────────────────
+_SRC_LABEL = {
+    "pubmed": "PubMed", "opentargets": "OpenTargets", "uniprot": "UniProt",
+    "intact": "IntAct", "gwas": "GWAS", "clinvar": "ClinVar",
+    "chembl": "ChEMBL", "gnomad": "gnomAD", "gtex": "GTEx",
+    "hpa": "HPA", "dgidb": "DGIdb", "clinicaltrials": "ClinicalTrials",
+    "alphafold": "AlphaFold", "reactome": "Reactome", "toxicity": "Toxicity",
+}
+
+def _collector_summary(key: str, result, err: str | None) -> str:
+    if err:
+        return f"エラー: {err[:80]}"
+    if result is None:
+        return "データなし"
+    if key == "pubmed":
+        return f"{len(result)} 件の論文"
+    if key == "opentargets":
+        if isinstance(result, dict):
+            return (f"遺伝的スコア {result.get('genetic_association_score', 0):.2f} / "
+                    f"薬剤 {len(result.get('known_drugs', []))} 件")
+        return "取得済み"
+    if key == "uniprot":
+        if isinstance(result, dict):
+            return f"{result.get('protein_name', '')} ({result.get('uniprot_id', '')})"
+        return "取得済み"
+    if key == "gwas":
+        return f"{len(result)} ヒット" if isinstance(result, list) else "取得済み"
+    if key == "clinvar":
+        return f"{len(result)} バリアント" if isinstance(result, list) else "取得済み"
+    if key == "chembl":
+        return f"{len(result)} 薬剤" if isinstance(result, list) else "取得済み"
+    if key == "gnomad":
+        if isinstance(result, dict):
+            return f"pLI={result.get('pli', 'N/A')}  LOEUF={result.get('loeuf', 'N/A')}"
+        return "取得済み"
+    if key == "gtex":
+        if isinstance(result, list) and result:
+            top = result[0]
+            return f"最高発現: {top.get('tissue', '')} {top.get('median_tpm', 0):.1f} TPM"
+        return "データなし"
+    if key == "hpa":
+        if isinstance(result, dict):
+            return f"組織数: {len(result.get('tissue_expression', []))}"
+        return "取得済み"
+    if key == "dgidb":
+        return f"{len(result)} 相互作用" if isinstance(result, list) else "取得済み"
+    if key == "clinicaltrials":
+        return f"{len(result)} 試験" if isinstance(result, list) else "取得済み"
+    if key == "alphafold":
+        if isinstance(result, dict):
+            return f"pLDDT={result.get('plddt', 'N/A')}  {result.get('confidence', '')}"
+        return "取得済み"
+    if key == "reactome":
+        return f"{len(result)} パスウェイ" if isinstance(result, list) else "取得済み"
+    if key == "toxicity":
+        if isinstance(result, dict):
+            return f"リスク: {result.get('overall_risk', 'N/A')}"
+        return "取得済み"
+    return "取得済み"
+
+
+def _collector_data(key: str, result) -> dict | None:
+    """Return a compact, JSON-safe dict for the frontend data tab."""
+    if result is None:
+        return None
+    try:
+        if key == "pubmed" and isinstance(result, list):
+            return {"papers": [{"title": p.get("title", ""), "journal": p.get("journal", ""),
+                                 "year": p.get("year", ""), "pmid": p.get("pmid", ""),
+                                 "abstract": (p.get("abstract", "") or "")[:300]} for p in result[:8]]}
+        if key == "opentargets" and isinstance(result, dict):
+            return {"genetic_score": result.get("genetic_association_score"),
+                    "somatic_score": result.get("somatic_mutation_score"),
+                    "drugs": [{"name": d.get("drug_name", ""), "phase": d.get("max_phase", ""),
+                               "mechanism": d.get("mechanism_of_action", "")}
+                              for d in result.get("known_drugs", [])[:8]],
+                    "genetic_variants": result.get("genetic_variants", [])[:5]}
+        if key == "uniprot" and isinstance(result, dict):
+            return {"protein_name": result.get("protein_name", ""),
+                    "function": (result.get("function", "") or "")[:400],
+                    "subcellular_location": result.get("subcellular_location", []),
+                    "protein_class": result.get("protein_class", []),
+                    "go_terms": result.get("go_terms", [])[:10]}
+        if key == "gwas" and isinstance(result, list):
+            return {"hits": [{"trait": h.get("trait", ""), "pvalue": h.get("pvalue", ""),
+                               "variant": h.get("variant_id", ""), "beta": h.get("beta", "")}
+                              for h in result[:8]]}
+        if key == "clinvar" and isinstance(result, list):
+            return {"variants": [{"name": v.get("variant_name", ""),
+                                   "significance": v.get("clinical_significance", ""),
+                                   "condition": v.get("condition", "")}
+                                  for v in result[:8]]}
+        if key == "chembl" and isinstance(result, list):
+            return {"drugs": [{"name": d.get("drug_name", ""), "phase": d.get("max_phase", ""),
+                                "mechanism": d.get("mechanism_of_action", ""),
+                                "indication": d.get("indication", "")} for d in result[:10]]}
+        if key == "gnomad" and isinstance(result, dict):
+            return result
+        if key == "gtex" and isinstance(result, list):
+            return {"tissues": [{"tissue": t.get("tissue", ""), "tpm": t.get("median_tpm", 0)}
+                                  for t in result[:10]]}
+        if key == "hpa" and isinstance(result, dict):
+            tissues = result.get("tissue_expression", [])
+            return {"subcellular": result.get("subcellular_location", []),
+                    "tissues": tissues[:10]}
+        if key == "dgidb" and isinstance(result, list):
+            return {"interactions": [{"drug": d.get("drug_name", ""),
+                                       "type": d.get("interaction_type", "")} for d in result[:10]]}
+        if key == "clinicaltrials" and isinstance(result, list):
+            return {"trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
+                                 "status": t.get("status", "")} for t in result[:8]]}
+        if key == "alphafold" and isinstance(result, dict):
+            return result
+        if key == "reactome" and isinstance(result, list):
+            return {"pathways": [{"name": p.get("pathway_name", ""),
+                                   "id": p.get("pathway_id", "")} for p in result[:15]]}
+        if key == "toxicity" and isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+    return None
+
+
 # ─── API: analyze (SSE streaming) ─────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
@@ -147,18 +275,69 @@ def analyze():
         for idx, gene in enumerate(genes):
             send("gene_start", gene=gene, index=idx, total=len(genes))
 
-            # 1. collect
-            send("progress", gene=gene, step="collecting", message="データ収集中...")
-            try:
-                evidence = aggregator.collect_all(gene, disease_name, verbose=False, disease_id=disease_id)
-            except Exception as e:
-                send("gene_error", gene=gene, error=f"データ収集失敗: {e}")
-                continue
+            # ── 1. Parallel data collection with per-collector SSE events ──────
+            COLLECTORS = {
+                "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=8, disease_efo_id=disease_id),
+                "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
+                "uniprot":        lambda: uniprot.get_protein_info(gene),
+                "intact":         lambda: intact.get_interactions(gene, max_results=15),
+                "gwas":           lambda: gwas.get_gwas_associations(gene, disease_name),
+                "clinvar":        lambda: gwas.get_clinvar_variants(gene),
+                "chembl":         lambda: chembl.get_drugs_for_target(gene),
+                "gnomad":         lambda: gnomad.get_constraint(gene),
+                "gtex":           lambda: gtex.get_tissue_expression(gene),
+                "hpa":            lambda: hpa.get_expression_profile(gene),
+                "dgidb":          lambda: dgidb.get_interactions(gene),
+                "clinicaltrials": lambda: clinicaltrials.get_trials(gene, disease_name),
+                "alphafold":      lambda: alphafold.get_structure_info(gene),
+                "reactome":       lambda: reactome.get_pathways(gene),
+            }
 
-            # 2-3. PPI + enrichment
+            send("collecting_start", gene=gene, sources=list(COLLECTORS.keys()))
+
+            results, errors = {}, {}
+
+            def _run(key, fn):
+                try:
+                    return key, fn(), None
+                except Exception as e:
+                    return key, None, str(e)
+
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                futures = {ex.submit(_run, k, fn): k for k, fn in COLLECTORS.items()}
+                for future in as_completed(futures):
+                    key, result, err = future.result()
+                    results[key] = result
+                    if err:
+                        errors[key] = err
+                    # summarise for SSE (keep payload small)
+                    send("collector_done", gene=gene, source=key,
+                         ok=(err is None and result is not None),
+                         summary=_collector_summary(key, result, err),
+                         data=_collector_data(key, result))
+
+            # toxicity (depends on chembl/opentargets)
+            known_drugs = list(results.get("chembl") or [])
+            ot = results.get("opentargets")
+            if isinstance(ot, dict):
+                known_drugs.extend(ot.get("known_drugs", []))
+            try:
+                tox = toxicity.assess_target_safety(gene, known_drugs)
+                results["toxicity"] = tox
+                send("collector_done", gene=gene, source="toxicity", ok=True,
+                     summary=_collector_summary("toxicity", tox, None),
+                     data=_collector_data("toxicity", tox))
+            except Exception as e:
+                errors["toxicity"] = str(e)
+                send("collector_done", gene=gene, source="toxicity", ok=False,
+                     summary=f"エラー: {e}", data=None)
+
+            evidence = {"gene": gene, "disease": disease_name,
+                        "evidence": results, "collection_errors": errors}
+
+            # ── 2. PPI + enrichment ────────────────────────────────────────────
             send("progress", gene=gene, step="ppi", message="PPIネットワーク構築中...")
-            ppi_graph = None
-            enrichment = {}
+            ppi_graph, enrichment = None, {}
             try:
                 ppi_graph = net.build_ppi_network(gene, use_biogrid=False, use_reactome=True)
                 enrichment = net.run_network_enrichment(ppi_graph) if ppi_graph else {}
@@ -170,12 +349,12 @@ def analyze():
             except Exception as e:
                 send("progress", gene=gene, step="ppi", message=f"PPI警告: {e}")
 
-            # 4. context
+            # ── 3. LLM context ────────────────────────────────────────────────
             context = aggregator.build_llm_context(evidence, config=None)
             if ppi_graph:
                 context += "\n\n" + net.network_summary_for_llm(ppi_graph, gene, enrichment)
 
-            # 5. hypothesis (streaming tokens)
+            # ── 4. Hypothesis streaming ───────────────────────────────────────
             send("progress", gene=gene, step="llm", message="仮説生成中...")
             hypothesis_parts = []
 
@@ -192,15 +371,13 @@ def analyze():
                 send("gene_error", gene=gene, error=f"仮説生成失敗: {e}")
                 continue
 
-            # 6. save report
+            # ── 5. Save report ────────────────────────────────────────────────
             send("progress", gene=gene, step="saving", message="レポート保存中...")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             pair_dir = REPORTS_DIR / f"{gene}_{disease_name.replace(' ', '_')}"
             pair_dir.mkdir(parents=True, exist_ok=True)
 
-            ppi_section = ""
-            ppi_image_rel = ""
-            partners = []
+            ppi_section, ppi_image_rel, partners = "", "", []
             if ppi_graph and ppi_graph.number_of_edges() > 0:
                 img_name = f"{ts}_ppi.png"
                 partners = net.rank_partners(ppi_graph, gene.upper())[:30]
@@ -209,12 +386,11 @@ def analyze():
                     ppi_section = rpt.ppi_md(gene, img_name, partners=partners)
                     ppi_image_rel = str(pair_dir / img_name)
 
-            enr_section = rpt.enrichment_md(enrichment)
             md = rpt.build_report(
                 gene, disease_name, lang, hypothesis, context,
                 generated_iso=datetime.now().isoformat(),
                 ppi_section=ppi_section,
-                enrichment_section=enr_section,
+                enrichment_section=rpt.enrichment_md(enrichment),
             )
             suffix = "JA" if lang == "ja" else "EN"
             rpt_path = pair_dir / f"{ts}_{suffix}.md"
@@ -223,8 +399,7 @@ def analyze():
                 json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
             send("gene_done", gene=gene, path=str(rpt_path),
-                 ppi_image=ppi_image_rel,
-                 partners=partners,
+                 ppi_image=ppi_image_rel, partners=partners,
                  enrichment_results=(enrichment or {}).get("results", [])[:20])
 
         send("batch_done", total=len(genes))
