@@ -40,33 +40,38 @@ Two-sentence synthesis.
 
 ---
 
-## 2. Disease Mechanism
-Step-by-step model: how does {gene} dysfunction lead to {disease}? Use specific pathway names, effectors, and cite literature.
+## 2. Molecular Mechanism
+Describe the molecular mechanism linking {gene} to {disease}:
+- **Protein function:** what does {gene} normally do at the molecular level?
+- **Dysregulation in disease:** how is {gene} expression/activity/structure altered in {disease}? (overexpressed / loss-of-function / mutation / mislocalised)
+- **Direct molecular effects:** what immediate molecular events result (e.g. kinase activity change, protein–protein interaction disruption, transcription factor binding)?
+- **Key interactors:** which PPI partners or pathway nodes are most affected? Cite network data.
+- **Downstream signalling cascade:** step-by-step from {gene} perturbation → effector proteins → cellular phenotype → tissue pathology → {disease} manifestation.
+- **Supporting evidence:** cite specific findings from literature, GWAS, ClinVar, and pathway enrichment.
 
 ---
 
-## 3. Therapeutic Hypothesis
+## 3. Disease Mechanism
+Step-by-step narrative: how does {gene} dysfunction lead to the tissue-level and clinical pathology of {disease}? Connect the molecular events above to organ function and patient symptoms. Use specific pathway names, effectors, and cite literature.
 
-### 3a. Molecular Mechanism (bullet points)
-- **Dysregulation:** how is {gene} altered in {disease}?
-- **Key pathway:** which downstream pathway is most affected?
-- **Cellular effect:** what cell-level phenotype results?
-- **Tissue/organ effect:** how does this drive {disease} pathology?
+---
 
-### 3b. Treatment Hypothesis (bullet points)
+## 4. Therapeutic Hypothesis
+
+### 4a. Treatment Hypothesis (bullet points)
 - **Intervention:** proposed modulation of {gene} (inhibit / activate / degrade / replace)
 - **Effect on target:** how would this change {gene} activity?
-- **Downstream effect:** how does that correct the mechanism above?
+- **Downstream effect:** how does that correct the molecular mechanism above?
 - **Clinical outcome:** expected improvement in {disease}
 - **Key evidence:** cite the strongest supporting data points
 - **Falsifiable prediction:** one testable statement that could confirm or refute this
 
-### 3c. One-sentence hypothesis
+### 4b. One-sentence hypothesis
 "If [intervention on {gene}] then [outcome in {disease} patients] because [mechanism]."
 
 ---
 
-## 4. Modality
+## 5. Modality
 Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 - Rationale based on subcellular location and druggability
 - Tissue specificity strategy (selectivity vs. delivery advantage)
@@ -75,12 +80,12 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 
 ---
 
-## 5. Existing Drug Landscape
+## 6. Existing Drug Landscape
 Summarise known drugs/candidates for {gene} with phases. Repositioning or combination opportunities.
 
 ---
 
-## 6. Safety Assessment
+## 7. Safety Assessment
 - On-target risks from gene function
 - Safety-relevant tissue expression (heart/liver/kidney/CNS) with TPM or HPA level
 - gnomAD pLI/LOEUF interpretation (high = greater on-target risk)
@@ -88,14 +93,14 @@ Summarise known drugs/candidates for {gene} with phases. Repositioning or combin
 
 ---
 
-## 7. Recommended Experiments
+## 8. Recommended Experiments
 | Experiment | Endpoint | Expected Result |
 |---|---|---|
 | (3–5 specific experiments based on the evidence above) | | |
 
 ---
 
-## 8. Key Uncertainties
+## 9. Key Uncertainties
 - Evidence gaps
 - Alternative hypotheses
 - Major risks
@@ -151,33 +156,38 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ---
 
-## 2. 疾患メカニズムの考察
-{gene}の機能異常が{disease}表現型につながるステップを具体的に記述。パスウェイ名・エフェクター・文献を引用。
+## 2. 分子メカニズム
+{gene}と{disease}をつなぐ分子メカニズムを詳述する：
+- **タンパク質の正常機能：** {gene}は分子レベルで何をしているか？
+- **疾患における機能異常：** {disease}において{gene}の発現・活性・構造はどう変化しているか？（過剰発現 / 機能喪失 / 変異 / 局在異常）
+- **直接的な分子イベント：** それによりどのような即時の分子イベントが起こるか？（キナーゼ活性変化、タンパク質間相互作用の破綻、転写因子結合など）
+- **主要な相互作用パートナー：** どのPPIパートナーやパスウェイノードが最も影響を受けるか？ネットワークデータを引用。
+- **下流シグナル伝達カスケード：** {gene}の変化 → エフェクタータンパク質 → 細胞表現型 → 組織病理 → {disease}発症という流れをステップごとに記述。
+- **支持エビデンス：** 文献・GWAS・ClinVar・パスウェイエンリッチメントの具体的な知見を引用。
 
 ---
 
-## 3. 治療仮説
+## 3. 疾患メカニズムの考察
+上記の分子イベントが組織・臓器レベルの病態と患者症状にどうつながるかを記述。{gene}機能異常から{disease}の臨床症状に至るステップをパスウェイ名・エフェクター・文献引用とともに説明。
 
-### 3a. 分子メカニズム仮説（箇条書き）
-- **機能異常：** {disease}において{gene}はどう変化しているか（具体的に）
-- **主要パスウェイ：** 最も重要な下流パスウェイ・エフェクター
-- **細胞への影響：** それがもたらす細胞表現型
-- **組織・疾患への影響：** {disease}病態へのつながり
+---
 
-### 3b. 疾患治療仮説（箇条書き）
+## 4. 治療仮説
+
+### 4a. 疾患治療仮説（箇条書き）
 - **介入方法：** {gene}への具体的介入（阻害/活性化/分解/補充など）
 - **ターゲットへの効果：** 介入による{gene}活性・発現の変化
-- **下流効果：** 上記メカニズム異常をどう是正するか
+- **下流効果：** 上記の分子メカニズム異常をどう是正するか
 - **期待される臨床効果：** {disease}の症状・進行への改善
 - **支持エビデンス：** 最も強いエビデンスを引用タグで
 - **検証可能な予測：** 反証可能な1つの予測
 
-### 3c. 仮説一文
-「{gene}に対して〔介入〕を行うと、{disease}患者において〔臨床効果〕が得られる。これは〔メカニズム〕による。」
+### 4b. 仮説一文
+「{gene}に対して〔介入〕を行うと、{disease}患者において〔臨床効果〕が得られる。これは〔分子メカニズム〕による。」
 
 ---
 
-## 4. モダリティ提案
+## 5. モダリティ提案
 最適モダリティ（低分子/抗体/PROTAC/ASO/遺伝子療法）と理由：
 - 細胞内局在・ドラッガビリティに基づく根拠
 - 組織特異性（選択性戦略 or デリバリー優位性）
@@ -186,12 +196,12 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ---
 
-## 5. 既存薬景観とリポジショニング
+## 6. 既存薬景観とリポジショニング
 {gene}標的薬・候補をフェーズ付きで整理。リポジショニング・併用の可能性。
 
 ---
 
-## 6. 安全性・毒性リスク評価
+## 7. 安全性・毒性リスク評価
 - 遺伝子機能に基づくオンターゲットリスク
 - 安全性関連組織における発現（心臓/肝臓/腎臓/CNS）とTPM値またはHPAレベル
 - gnomAD pLI/LOEUF（高値＝オンターゲットリスク大）の解釈
@@ -199,14 +209,14 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ---
 
-## 7. 推奨次期実験
+## 8. 推奨次期実験
 | 実験種別 | エンドポイント | 期待される結果 |
 |---|---|---|
 | （上記エビデンスに基づく具体的な実験を3〜5件） | | |
 
 ---
 
-## 8. 主要な不確実性・限界
+## 9. 主要な不確実性・限界
 - エビデンスのギャップ
 - 代替仮説
 - 仮説に対する主要リスク
