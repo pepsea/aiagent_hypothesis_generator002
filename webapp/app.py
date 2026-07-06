@@ -163,7 +163,11 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return f"{len(result)} 薬剤" if isinstance(result, list) else "取得済み"
     if key == "gnomad":
         if isinstance(result, dict):
-            return f"pLI={result.get('pli', 'N/A')}  LOEUF={result.get('loeuf', 'N/A')}"
+            pli = result.get("pLI", result.get("pli"))
+            loeuf = result.get("LOEUF", result.get("loeuf"))
+            pli_s = f"{pli:.3g}" if isinstance(pli, (int, float)) else "N/A"
+            loeuf_s = f"{loeuf:.3g}" if isinstance(loeuf, (int, float)) else "N/A"
+            return f"pLI={pli_s}  LOEUF={loeuf_s}"
         return "取得済み"
     if key == "gtex":
         if isinstance(result, dict) and "top_tissues" in result:
@@ -185,7 +189,9 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return f"{len(result)} 試験" if isinstance(result, list) else "取得済み"
     if key == "alphafold":
         if isinstance(result, dict):
-            return f"pLDDT={result.get('plddt', 'N/A')}  {result.get('confidence', '')}"
+            plddt = result.get("mean_plddt", result.get("plddt"))
+            plddt_s = f"{plddt:.1f}" if isinstance(plddt, (int, float)) else "N/A"
+            return f"pLDDT={plddt_s}  {result.get('confidence', '')}"
         return "取得済み"
     if key == "reactome":
         return f"{len(result)} パスウェイ" if isinstance(result, list) else "取得済み"
@@ -245,20 +251,30 @@ def _collector_data(key: str, result) -> dict | None:
                                  "pmid": (ix.get("pubmed_ids") or [""])[0]})
             return {"interactions": rows}
         if key == "gwas" and isinstance(result, list):
-            return {"hits": [{"trait": h.get("trait", ""), "pvalue": h.get("pvalue", ""),
-                               "variant": h.get("variant_id", ""), "beta": h.get("beta", "")}
-                              for h in result[:8]]}
+            return {"hits": [{"trait": h.get("trait", ""),
+                               "pvalue": h.get("p_value", ""),
+                               "variant": ", ".join(h.get("snps", [])),
+                               "beta": h.get("or_beta", "")}
+                              for h in result[:10]]}
         if key == "clinvar" and isinstance(result, list):
-            return {"variants": [{"name": v.get("variant_name", ""),
-                                   "significance": v.get("clinical_significance", ""),
-                                   "condition": v.get("condition", "")}
-                                  for v in result[:8]]}
+            return {"variants": [{"name": v.get("title", "") or v.get("variant_id", ""),
+                                   "significance": v.get("clinical_significance", "") or "—",
+                                   "condition": v.get("condition", "") or "—",
+                                   "review": v.get("review_status", "")}
+                                  for v in result[:10]]}
         if key == "chembl" and isinstance(result, list):
-            return {"drugs": [{"name": d.get("drug_name", ""), "phase": d.get("max_phase", ""),
-                                "mechanism": d.get("mechanism_of_action", ""),
-                                "indication": d.get("indication", "")} for d in result[:10]]}
+            return {"drugs": [{"name": d.get("name", "") or d.get("chembl_id", ""),
+                                "phase": d.get("max_phase", ""),
+                                "mechanism": d.get("mechanism", ""),
+                                "type": d.get("molecule_type", "")} for d in result[:10]]}
         if key == "gnomad" and isinstance(result, dict):
-            return result
+            return {"pli": result.get("pLI", result.get("pli")),
+                    "loeuf": result.get("LOEUF", result.get("loeuf")),
+                    "lof_z": result.get("lof_z"),
+                    "obs_lof": result.get("obs_lof"),
+                    "exp_lof": result.get("exp_lof"),
+                    "essentiality": result.get("essentiality", ""),
+                    "url": result.get("url", "")}
         if key == "gtex" and isinstance(result, dict) and "top_tissues" in result:
             return {"tissues": result.get("top_tissues", [])[:10],
                     "key_tissues": result.get("key_tissues", [])}
@@ -274,10 +290,15 @@ def _collector_data(key: str, result) -> dict | None:
             return {"trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
                                  "status": t.get("status", "")} for t in result[:8]]}
         if key == "alphafold" and isinstance(result, dict):
-            return result
+            return {"plddt": result.get("mean_plddt", result.get("plddt")),
+                    "confidence": result.get("confidence", ""),
+                    "uniprot_id": result.get("uniprot_id", ""),
+                    "view_url": result.get("view_url", ""),
+                    "pdb_url": result.get("pdb_url", "")}
         if key == "reactome" and isinstance(result, list):
-            return {"pathways": [{"name": p.get("pathway_name", ""),
-                                   "id": p.get("pathway_id", "")} for p in result[:15]]}
+            return {"pathways": [{"name": p.get("name", "") or p.get("pathway_name", ""),
+                                   "id": p.get("pathway_id", ""),
+                                   "is_disease": p.get("is_disease", False)} for p in result[:15]]}
         if key == "toxicity" and isinstance(result, dict):
             return result
     except Exception:

@@ -10,16 +10,27 @@ def _find_target_chembl_id(gene_symbol: str) -> str | None:
     2nd: /target?pref_name__icontains=（500 時のフォールバック）
     3rd: /target_component?accession=（UniProt 経由）
     """
-    # --- 方法1: 全文検索 ---
+    # --- 方法1: 全文検索（SINGLE PROTEIN・遺伝子名完全一致を優先） ---
     try:
         r = requests.get(f"{BASE}/target/search", params={
-            "q": gene_symbol, "format": "json", "limit": 5
+            "q": gene_symbol, "format": "json", "limit": 15
         }, timeout=20)
         if r.status_code == 200:
             human = [t for t in r.json().get("targets", [])
                      if t.get("organism") == "Homo sapiens"]
-            if human:
-                return human[0].get("target_chembl_id")
+            # 単一タンパク質を最優先
+            single = [t for t in human if t.get("target_type") == "SINGLE PROTEIN"]
+            # 遺伝子シンボルがコンポーネント synonym に完全一致するもの
+            def _matches_symbol(t):
+                for comp in (t.get("target_components") or []):
+                    for syn in (comp.get("target_component_synonyms") or []):
+                        if (syn.get("component_synonym") or "").upper() == gene_symbol.upper():
+                            return True
+                return False
+            exact = [t for t in single if _matches_symbol(t)]
+            for pool in (exact, single, human):
+                if pool:
+                    return pool[0].get("target_chembl_id")
     except Exception:
         pass
 
@@ -105,6 +116,57 @@ def get_drugs_for_target(gene_symbol: str) -> list[dict]:
                 "action_type": mech.get("action_type", ""),
             })
 
+    # 承認薬 mechanism が無い場合、活性を持つ臨床フェーズ化合物にフォールバック
+    if not drugs:
+        drugs = _clinical_candidates(chembl_id)
+
+    return drugs
+
+
+def _clinical_candidates(target_chembl_id: str, max_n: int = 10) -> list[dict]:
+    """mechanism テーブルに承認薬が無いターゲット向け:
+    活性データを持つ臨床フェーズ (max_phase>=1) の名前付き分子を返す。"""
+    try:
+        r = requests.get(f"{BASE}/activity", params={
+            "target_chembl_id": target_chembl_id,
+            "pchembl_value__isnull": "false",
+            "format": "json", "limit": 100,
+        }, timeout=30)
+        r.raise_for_status()
+        acts = r.json().get("activities", [])
+    except Exception:
+        return []
+
+    mol_ids = list({a.get("molecule_chembl_id") for a in acts if a.get("molecule_chembl_id")})
+    drugs, seen = [], set()
+    for mol_id in mol_ids:
+        if len(drugs) >= max_n:
+            break
+        try:
+            r3 = requests.get(f"{BASE}/molecule/{mol_id}", params={"format": "json"}, timeout=10)
+            r3.raise_for_status()
+            mol = r3.json()
+            phase = mol.get("max_phase")
+            name = mol.get("pref_name")
+            # 臨床フェーズかつ名前付きのもののみ
+            if not name or phase in (None, 0, "0"):
+                continue
+            if name in seen:
+                continue
+            seen.add(name)
+            drugs.append({
+                "chembl_id": mol_id,
+                "name": name,
+                "max_phase": phase,
+                "molecule_type": mol.get("molecule_type", ""),
+                "mechanism": "(bioactivity; not an approved indication)",
+                "action_type": "",
+                "indication": False,
+            })
+        except Exception:
+            continue
+
+    drugs.sort(key=lambda d: d.get("max_phase") or 0, reverse=True)
     return drugs
 
 

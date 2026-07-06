@@ -843,22 +843,27 @@ function renderDataDetail(source, data) {
     }
     if (source === "clinvar" && data.variants) {
       const rows = data.variants.map(v => `<tr>
-        <td>${esc(v.name)}</td><td>${esc(v.significance)}</td><td>${esc(v.condition)}</td></tr>`).join("");
-      return `<table class="data-table"><thead><tr><th>バリアント</th><th>臨床的意義</th><th>疾患</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <td>${esc(v.name)}</td><td>${esc(v.significance)}</td><td>${esc(v.condition)}</td>
+        <td style="font-size:11px;color:var(--text-sub);">${esc(v.review||"")}</td></tr>`).join("");
+      return `<table class="data-table"><thead><tr><th>バリアント</th><th>臨床的意義</th><th>疾患</th><th>レビュー状況</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "chembl" && data.drugs) {
+      if (!data.drugs.length) return '<span style="color:var(--text-sub);font-size:13px;">承認薬・臨床候補なし（ChEMBL）</span>';
       const rows = data.drugs.map(d => `<tr>
-        <td>${esc(d.name)}</td><td><span class="badge">Phase ${d.phase||"?"}</span></td>
-        <td>${esc(d.mechanism)}</td><td>${esc(d.indication)}</td></tr>`).join("");
-      return `<table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th><th>適応</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <td style="font-family:monospace;font-weight:600;">${esc(d.name)}</td>
+        <td><span class="badge">Phase ${d.phase!=null?d.phase:"?"}</span></td>
+        <td>${esc(d.mechanism)}</td><td>${esc(d.type||"")}</td></tr>`).join("");
+      return `<table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th><th>種別</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "gnomad") {
+      const fmt = v => (typeof v === "number") ? v.toPrecision(3) : (v ?? "N/A");
       return `<div class="metric-row">
-        <div class="metric"><div class="metric-val">${data.pli ?? "N/A"}</div><div class="metric-label">pLI</div></div>
-        <div class="metric"><div class="metric-val">${data.loeuf ?? "N/A"}</div><div class="metric-label">LOEUF</div></div>
-        <div class="metric"><div class="metric-val">${data.oe_lof ?? "N/A"}</div><div class="metric-label">oe LoF</div></div>
+        <div class="metric"><div class="metric-val">${fmt(data.pli)}</div><div class="metric-label">pLI</div></div>
+        <div class="metric"><div class="metric-val">${fmt(data.loeuf)}</div><div class="metric-label">LOEUF</div></div>
+        <div class="metric"><div class="metric-val">${fmt(data.lof_z)}</div><div class="metric-label">LoF Z</div></div>
       </div>
-      <div style="font-size:12px;color:var(--text-sub);">${esc(data.essentiality||"")}</div>`;
+      <div style="font-size:12px;color:var(--text-sub);margin-top:4px;">
+        観測LoF ${data.obs_lof ?? "?"} / 期待 ${typeof data.exp_lof==="number"?data.exp_lof.toFixed(1):"?"}<br>${esc(data.essentiality||"")}</div>`;
     }
     if (source === "gtex" && data) {
       const tissues = data.tissues || [];
@@ -892,11 +897,12 @@ function renderDataDetail(source, data) {
       return `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "alphafold") {
+      const plddt = (typeof data.plddt === "number") ? data.plddt.toFixed(1) : "N/A";
       return `<div class="metric-row">
-        <div class="metric"><div class="metric-val">${data.plddt ?? "N/A"}</div><div class="metric-label">pLDDT</div></div>
-        <div class="metric"><div class="metric-val">${data.coverage ?? "N/A"}</div><div class="metric-label">Coverage</div></div>
+        <div class="metric"><div class="metric-val">${plddt}</div><div class="metric-label">平均 pLDDT</div></div>
+        <div class="metric"><div class="metric-val" style="font-size:13px;">${esc(data.confidence||"N/A")}</div><div class="metric-label">信頼度</div></div>
       </div>
-      <div style="font-size:12px;color:var(--text-sub);">${esc(data.confidence||"")}</div>`;
+      ${data.view_url ? `<div style="margin-top:8px;"><a href="${esc(data.view_url)}" target="_blank" class="btn btn-secondary btn-sm">🔬 AlphaFold構造を見る (${esc(data.uniprot_id||"")})</a></div>` : ""}`;
     }
     if (source === "intact" && data && data.interactions) {
       const rows = data.interactions.map(d => `<tr>
@@ -918,7 +924,10 @@ function renderDataDetail(source, data) {
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "reactome" && data.pathways) {
-      const rows = data.pathways.map(p=>`<tr><td>${esc(p.name)}</td><td style="font-size:11px;color:var(--text-sub);">${esc(p.id)}</td></tr>`).join("");
+      if (!data.pathways.length) return '<span style="color:var(--text-sub);font-size:13px;">Reactomeパスウェイなし（この遺伝子のアノテーションは限定的）</span>';
+      const rows = data.pathways.map(p=>`<tr>
+        <td>${esc(p.name)} ${p.is_disease?'<span class="badge low">disease</span>':''}</td>
+        <td style="font-size:11px;"><a href="https://reactome.org/PathwayBrowser/#/${esc(p.id)}" target="_blank">${esc(p.id)}</a></td></tr>`).join("");
       return `<table class="data-table"><thead><tr><th>パスウェイ</th><th>ID</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "toxicity") {

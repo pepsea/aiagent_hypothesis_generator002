@@ -74,7 +74,10 @@ def get_pathways(gene_symbol: str, uniprot_id: str = "", top_n: int = 15) -> lis
     results = []
     for p in pathways[:top_n]:
         pid  = p.get("stId", "")
-        name = p.get("displayName", "") or p.get("name", [""])[0] if isinstance(p.get("name"), list) else p.get("name", "")
+        name = p.get("displayName", "")
+        if not name:
+            raw_name = p.get("name", "")
+            name = raw_name[0] if isinstance(raw_name, list) and raw_name else (raw_name or "")
         results.append({
             "pathway_id": pid,
             "name":       name,

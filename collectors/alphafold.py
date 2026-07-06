@@ -57,7 +57,10 @@ def get_structure_info(gene_symbol: str, uniprot_id: str = "") -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-    mean_plddt = entry.get("meanPlddt")
+    # API field renamed: meanPlddt → globalMetricValue
+    mean_plddt = entry.get("globalMetricValue")
+    if mean_plddt is None:
+        mean_plddt = entry.get("meanPlddt")
     entry_id   = entry.get("entryId", "")
     pdb_url    = entry.get("pdbUrl", "")
     view_url   = f"https://alphafold.ebi.ac.uk/entry/{uid}"
