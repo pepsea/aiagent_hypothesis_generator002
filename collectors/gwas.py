@@ -1,16 +1,51 @@
 """GWAS Catalog REST API (EMBL-EBI, free for all use)."""
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 BASE = "https://www.ebi.ac.uk/gwas/rest/api"
 
+
+def _fetch_snp_hits(snp: dict) -> list[dict]:
+    """1 SNP の associations と trait 名を取得（並列実行用）。"""
+    rsid = snp.get("rsId", "")
+    assoc_link = (snp.get("_links", {}).get("associations") or {}).get("href")
+    if not assoc_link:
+        return []
+    try:
+        ra = requests.get(assoc_link, timeout=12)
+        ra.raise_for_status()
+        associations = ra.json().get("_embedded", {}).get("associations", [])
+    except Exception:
+        return []
+
+    hits = []
+    for assoc in associations:
+        trait = ""
+        tl = (assoc.get("_links", {}).get("efoTraits") or {}).get("href")
+        if tl:
+            try:
+                rt = requests.get(tl, timeout=8)
+                traits = rt.json().get("_embedded", {}).get("efoTraits", [])
+                trait = ", ".join(t.get("trait", "") for t in traits if t.get("trait"))
+            except Exception:
+                pass
+        hits.append({
+            "trait":                 trait,
+            "p_value":               assoc.get("pvalue"),
+            "or_beta":               assoc.get("orPerCopyNum") or assoc.get("betaNum"),
+            "snps":                  [rsid],
+            "risk_allele_frequency": assoc.get("riskFrequency"),
+        })
+    return hits
+
+
 def get_gwas_associations(gene_symbol: str, disease_query: str = None,
-                          max_snps: int = 25, max_results: int = 20) -> list[dict]:
+                          max_snps: int = 15, max_results: int = 20) -> list[dict]:
     """Return GWAS hits for a gene, optionally filtered by trait.
 
     旧 /genes/{gene}/associations は廃止 (500) されたため、
-    findByGene で SNP を取得し、各 SNP の associations → efoTraits を辿る。
+    findByGene で SNP を取得し、各 SNP の associations → efoTraits を並列で辿る。
     """
-    # 1. 遺伝子にマップされる SNP を取得
     try:
         r = requests.get(
             f"{BASE}/singleNucleotidePolymorphisms/search/findByGene",
@@ -22,63 +57,26 @@ def get_gwas_associations(gene_symbol: str, disease_query: str = None,
     except Exception:
         return []
 
-    results = []
-    seen = set()
-    for snp in snps:
-        if len(results) >= max_results:
-            break
-        rsid = snp.get("rsId", "")
-        assoc_link = (snp.get("_links", {}).get("associations") or {}).get("href")
-        if not assoc_link:
-            continue
-        try:
-            ra = requests.get(assoc_link, timeout=15)
-            ra.raise_for_status()
-            associations = ra.json().get("_embedded", {}).get("associations", [])
-        except Exception:
-            continue
+    # SNP ごとの取得を並列化（逐次だと ~60s → 並列で数秒）
+    results, seen = [], set()
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for hits in ex.map(_fetch_snp_hits, snps):
+            for h in hits:
+                if disease_query and disease_query.lower() not in (h["trait"] or "").lower():
+                    continue
+                key = (h["snps"][0], h["trait"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(h)
 
-        for assoc in associations:
-            pval = assoc.get("pvalue")
-            or_beta = assoc.get("orPerCopyNum") or assoc.get("betaNum")
-
-            # trait 名を efoTraits リンクから取得
-            trait = ""
-            tl = (assoc.get("_links", {}).get("efoTraits") or {}).get("href")
-            if tl:
-                try:
-                    rt = requests.get(tl, timeout=10)
-                    traits = rt.json().get("_embedded", {}).get("efoTraits", [])
-                    trait = ", ".join(t.get("trait", "") for t in traits if t.get("trait"))
-                except Exception:
-                    pass
-
-            if disease_query and disease_query.lower() not in trait.lower():
-                continue
-
-            key = (rsid, trait)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            results.append({
-                "trait":                 trait,
-                "p_value":               pval,
-                "or_beta":               or_beta,
-                "snps":                  [rsid],
-                "risk_allele_frequency": assoc.get("riskFrequency"),
-            })
-            if len(results) >= max_results:
-                break
-
-    # p値昇順（数値化できるもの優先）
     def _pv(x):
         try:
             return float(x.get("p_value") or 1)
         except (TypeError, ValueError):
             return 1.0
     results.sort(key=_pv)
-    return results
+    return results[:max_results]
 
 
 def get_clinvar_variants(gene_symbol: str) -> list[dict]:

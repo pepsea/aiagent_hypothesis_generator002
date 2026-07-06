@@ -16,7 +16,7 @@ query($ensgId: String!) {
     approvedName
     biotype
     functionDescriptions
-    associatedDiseases(enableIndirect: true, page: {index: 0, size: 5}) {
+    associatedDiseases(enableIndirect: true, page: {index: 0, size: 20}) {
       rows {
         disease { id name }
         score
@@ -153,8 +153,10 @@ def get_target_disease_evidence(
         if not isinstance(row, dict):
             continue
         associated_diseases.append({
-            "disease": (row.get("disease") or {}).get("name", ""),
-            "score":   row.get("score"),
+            "disease":         (row.get("disease") or {}).get("name", ""),
+            "disease_id":      (row.get("disease") or {}).get("id", ""),
+            "score":           row.get("score"),
+            "datatype_scores": {d["id"]: d["score"] for d in (row.get("datatypeScores") or [])},
         })
 
     return {

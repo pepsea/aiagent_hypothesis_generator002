@@ -223,8 +223,11 @@ def _collector_data(key: str, result) -> dict | None:
                            "phase": d.get("max_phase","") or d.get("maxClinicalStage",""),
                            "indication": d.get("disease","") or d.get("indication","")}
                           for d in drugs[:10]],
-                "associated_diseases": [{"name": a.get("disease",""), "score": a.get("score")}
-                                        for a in assoc_dis[:5]],
+                "associated_diseases": [{"name": a.get("disease",""),
+                                          "id": a.get("disease_id",""),
+                                          "score": a.get("score"),
+                                          "datatype_scores": a.get("datatype_scores", {})}
+                                        for a in assoc_dis[:20]],
             }
         if key == "uniprot" and isinstance(result, dict):
             # go_terms can be list of str or list of dict
@@ -460,6 +463,7 @@ def analyze():
                 json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
             send("gene_done", gene=gene, path=str(rpt_path),
+                 hypothesis=hypothesis,
                  ppi_image=ppi_image_rel, partners=partners,
                  enrichment_results=(enrichment or {}).get("results", [])[:100])
 
