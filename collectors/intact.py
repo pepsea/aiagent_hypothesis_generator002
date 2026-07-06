@@ -2,6 +2,12 @@
 
 String代替として使用。商用利用可。
 遺伝子ごとの結果を ppi_cache/intact/ にJSONキャッシュ（3日間有効）。
+
+API 仕様変更 (2025):
+  - participants フィールド削除 → moleculeA/B で相互作用分子を返す
+  - intactScore → intactMiscore
+  - publications list → publicationPubmedIdentifier (string)
+  - detectionMethod/interactionType は文字列として返される
 """
 import json
 import time
@@ -47,37 +53,35 @@ def get_interactions(gene_symbol: str, species: int = 9606, max_results: int = 2
     r.raise_for_status()
 
     data = r.json()
+    center = gene_symbol.upper()
     interactions = []
+
     for item in data.get("content", []):
-        participants = item.get("participants", [])
+        mol_a = (item.get("moleculeA") or "").strip()
+        mol_b = (item.get("moleculeB") or "").strip()
 
-        # participants はdictのリストまたは文字列のリストの場合がある
-        names = []
-        for p in participants:
-            if isinstance(p, dict):
-                alias = p.get("preferredName", "") or p.get("interactorAc", "")
-            else:
-                alias = str(p)
-            if alias:
-                names.append(alias)
+        # 相手分子（クエリ遺伝子でない方）を取得
+        if mol_a.upper() == center:
+            partner = mol_b
+        elif mol_b.upper() == center:
+            partner = mol_a
+        else:
+            # intactName でフォールバック
+            name_a = (item.get("intactNameA") or "").upper()
+            partner = mol_b if center in name_a else mol_a
 
-        partners = [n for n in names if gene_symbol.upper() not in n.upper()]
+        if not partner:
+            continue
 
-        pubs = item.get("publications", [])
-        pubmed_ids = []
-        for p in pubs:
-            if isinstance(p, dict):
-                pubmed_ids.append(p.get("pubmedId", ""))
-            else:
-                pubmed_ids.append(str(p))
+        pubmed_id = item.get("publicationPubmedIdentifier", "")
 
         interactions.append({
-            "interaction_id": item.get("interactionAc", ""),
-            "partners": partners,
-            "detection_method": (item.get("detectionMethod") or {}).get("shortName", "") if isinstance(item.get("detectionMethod"), dict) else "",
-            "interaction_type": (item.get("interactionType") or {}).get("shortName", "") if isinstance(item.get("interactionType"), dict) else "",
-            "confidence": item.get("intactScore", None),
-            "pubmed_ids": pubmed_ids,
+            "interaction_id":  item.get("ac", ""),
+            "partners":        [partner],
+            "detection_method": item.get("detectionMethod", ""),
+            "interaction_type": item.get("type", ""),
+            "confidence":      item.get("intactMiscore"),
+            "pubmed_ids":      [pubmed_id] if pubmed_id else [],
         })
 
     _save_cache(gene_symbol, interactions)
@@ -90,7 +94,6 @@ def get_top_interactors(gene_symbol: str, top_n: int = 10) -> list[str]:
     partners = []
     for ix in interactions:
         partners.extend(ix["partners"])
-    # Count frequency
     from collections import Counter
     counts = Counter(partners)
     return [name for name, _ in counts.most_common(top_n)]

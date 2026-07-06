@@ -140,12 +140,20 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return f"{len(result)} 件の論文"
     if key == "opentargets":
         if isinstance(result, dict):
-            return (f"遺伝的スコア {result.get('genetic_association_score', 0):.2f} / "
-                    f"薬剤 {len(result.get('known_drugs', []))} 件")
+            score = result.get("association_score") or 0
+            dt = result.get("datatype_scores") or {}
+            gen = dt.get("genetic_association") or dt.get("genetic_literature") or 0
+            n_drugs = len(result.get("known_drugs") or [])
+            return (f"関連スコア {float(score):.3f} / 遺伝的 {float(gen):.3f} / 薬剤 {n_drugs} 件")
         return "取得済み"
     if key == "uniprot":
         if isinstance(result, dict):
             return f"{result.get('protein_name', '')} ({result.get('uniprot_id', '')})"
+        return "取得済み"
+    if key == "intact":
+        if isinstance(result, list):
+            partners = list({p for ix in result for p in (ix.get("partners") or [])})
+            return f"{len(result)} interactions / {len(partners)} partners"
         return "取得済み"
     if key == "gwas":
         return f"{len(result)} ヒット" if isinstance(result, list) else "取得済み"
@@ -198,12 +206,20 @@ def _collector_data(key: str, result) -> dict | None:
                                  "year": p.get("year", ""), "pmid": p.get("pmid", ""),
                                  "abstract": (p.get("abstract", "") or "")[:300]} for p in result[:8]]}
         if key == "opentargets" and isinstance(result, dict):
-            return {"genetic_score": result.get("genetic_association_score"),
-                    "somatic_score": result.get("somatic_mutation_score"),
-                    "drugs": [{"name": d.get("drug_name", ""), "phase": d.get("max_phase", ""),
-                               "mechanism": d.get("mechanism_of_action", "")}
-                              for d in result.get("known_drugs", [])[:8]],
-                    "genetic_variants": result.get("genetic_variants", [])[:5]}
+            dt = result.get("datatype_scores") or {}
+            drugs = result.get("known_drugs") or []
+            assoc_dis = result.get("associated_diseases") or []
+            return {
+                "association_score": result.get("association_score"),
+                "datatype_scores": dt,
+                "genetic_score": dt.get("genetic_association") or dt.get("genetic_literature"),
+                "drugs": [{"name": d.get("drug","") or d.get("drug_name",""),
+                           "phase": d.get("max_phase","") or d.get("maxClinicalStage",""),
+                           "indication": d.get("disease","") or d.get("indication","")}
+                          for d in drugs[:10]],
+                "associated_diseases": [{"name": a.get("disease",""), "score": a.get("score")}
+                                        for a in assoc_dis[:5]],
+            }
         if key == "uniprot" and isinstance(result, dict):
             # go_terms can be list of str or list of dict
             raw_go = result.get("go_terms", [])[:15]
@@ -218,6 +234,16 @@ def _collector_data(key: str, result) -> dict | None:
                     "subcellular_location": result.get("subcellular_location", [])[:8],
                     "protein_class": result.get("protein_class", []),
                     "go_terms": go_terms}
+        if key == "intact" and isinstance(result, list):
+            rows = []
+            for ix in result[:15]:
+                for p in (ix.get("partners") or []):
+                    rows.append({"partner": p,
+                                 "type": ix.get("interaction_type", ""),
+                                 "method": ix.get("detection_method", ""),
+                                 "score": ix.get("confidence"),
+                                 "pmid": (ix.get("pubmed_ids") or [""])[0]})
+            return {"interactions": rows}
         if key == "gwas" and isinstance(result, list):
             return {"hits": [{"trait": h.get("trait", ""), "pvalue": h.get("pvalue", ""),
                                "variant": h.get("variant_id", ""), "beta": h.get("beta", "")}

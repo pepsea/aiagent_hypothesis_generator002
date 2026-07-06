@@ -791,22 +791,26 @@ function renderDataDetail(source, data) {
         </div>`).join("");
     }
     if (source === "opentargets" && data) {
+      const dt = data.datatype_scores || {};
+      const scoreRows = Object.entries(dt).map(([k,v]) =>
+        `<tr><td>${esc(k)}</td><td><div style="background:#dbeafe;width:${Math.round(v*100)}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${(+v).toFixed(3)}</td></tr>`
+      ).join("");
       const drugs = (data.drugs || []).map(d => `<tr>
         <td>${esc(d.name)}</td>
         <td><span class="badge">Phase ${d.phase||"?"}</span></td>
-        <td>${esc(d.mechanism)}</td></tr>`).join("");
-      const gv = (data.genetic_variants || []).map(v => `<tr>
-        <td>${esc(v.variant_id||v.rsid||"")}</td>
-        <td>${esc(v.consequence||"")}</td>
-        <td>${v.score ?? ""}</td></tr>`).join("");
+        <td>${esc(d.indication)}</td></tr>`).join("");
+      const dis = (data.associated_diseases || []).map(a =>
+        `<tr><td>${esc(a.name)}</td><td>${(+a.score).toFixed(3)}</td></tr>`).join("");
       return `<div class="metric-row">
-        <div class="metric"><div class="metric-val">${(data.genetic_score||0).toFixed(3)}</div><div class="metric-label">Genetic Score</div></div>
-        <div class="metric"><div class="metric-val">${(data.somatic_score||0).toFixed(3)}</div><div class="metric-label">Somatic Score</div></div>
+        <div class="metric"><div class="metric-val">${(+(data.association_score||0)).toFixed(3)}</div><div class="metric-label">Total Score</div></div>
+        <div class="metric"><div class="metric-val">${(+(data.genetic_score||0)).toFixed(3)}</div><div class="metric-label">Genetic Score</div></div>
       </div>
-      ${drugs ? `<div class="data-section-title">既知薬剤</div>
-      <table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th></tr></thead><tbody>${drugs}</tbody></table>` : ""}
-      ${gv ? `<div class="data-section-title" style="margin-top:10px;">遺伝的バリアント</div>
-      <table class="data-table"><thead><tr><th>バリアント</th><th>Consequence</th><th>スコア</th></tr></thead><tbody>${gv}</tbody></table>` : ""}`;
+      ${scoreRows ? `<div class="data-section-title">データタイプ別スコア</div>
+      <table class="data-table"><thead><tr><th>データタイプ</th><th>スコア</th></tr></thead><tbody>${scoreRows}</tbody></table>` : ""}
+      ${drugs ? `<div class="data-section-title" style="margin-top:10px;">薬剤・臨床候補</div>
+      <table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>適応</th></tr></thead><tbody>${drugs}</tbody></table>` : '<div style="font-size:12px;color:var(--text-sub);margin-top:8px;">承認薬・臨床候補なし</div>'}
+      ${dis ? `<div class="data-section-title" style="margin-top:10px;">関連疾患</div>
+      <table class="data-table"><thead><tr><th>疾患</th><th>スコア</th></tr></thead><tbody>${dis}</tbody></table>` : ""}`;
     }
     if (source === "uniprot" && data) {
       const go = (data.go_terms||[]).map(g=>`<li>${esc(g)}</li>`).join("");
@@ -878,6 +882,25 @@ function renderDataDetail(source, data) {
         <div class="metric"><div class="metric-val">${data.coverage ?? "N/A"}</div><div class="metric-label">Coverage</div></div>
       </div>
       <div style="font-size:12px;color:var(--text-sub);">${esc(data.confidence||"")}</div>`;
+    }
+    if (source === "intact" && data && data.interactions) {
+      const rows = data.interactions.map(d => `<tr>
+        <td style="font-family:monospace;font-weight:600;">${esc(d.partner)}</td>
+        <td>${esc(d.type)}</td>
+        <td style="font-size:11px;">${esc(d.method)}</td>
+        <td class="pval">${d.score != null ? (+d.score).toFixed(3) : "—"}</td>
+        <td>${d.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(d.pmid)}" target="_blank">${esc(d.pmid)}</a>` : "—"}</td>
+      </tr>`).join("");
+      return rows
+        ? `<table class="data-table"><thead><tr><th>パートナー</th><th>タイプ</th><th>検出法</th><th>MI score</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<span style="color:var(--text-sub)">インタラクションなし</span>';
+    }
+    if (source === "dgidb" && data && data.interactions) {
+      const rows = data.interactions.map(d=>`<tr><td style="font-family:monospace;">${esc(d.drug)}</td>
+        <td>${esc(d.type)}</td></tr>`).join("");
+      return rows
+        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "reactome" && data.pathways) {
       const rows = data.pathways.map(p=>`<tr><td>${esc(p.name)}</td><td style="font-size:11px;color:var(--text-sub);">${esc(p.id)}</td></tr>`).join("");
