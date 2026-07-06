@@ -127,9 +127,10 @@ def _save_report(gene, disease, lang, hypothesis, context,
     ppi_section = ""
     if ppi_graph and ppi_graph.number_of_edges() > 0:
         img_name = f"{ts}_ppi.png"
+        partners = net.rank_partners(ppi_graph, gene.upper())[:30]
         if net.render_ppi_image(ppi_graph, gene, str(pair_dir / img_name),
                                 enrichment=enrichment, max_nodes=30):
-            ppi_section = report.ppi_md(gene, img_name)
+            ppi_section = report.ppi_md(gene, img_name, partners=partners)
             log(f"  ✓ PPI画像: {pair_dir / img_name}")
 
     # レポート本体

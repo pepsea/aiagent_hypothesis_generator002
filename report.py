@@ -57,15 +57,25 @@ def enrichment_md(enrichment: dict, top_per_source: int = 5) -> str:
     return "\n".join(lines)
 
 
-def ppi_md(gene: str, image_filename: str) -> str:
-    """PPI ネットワーク画像を埋め込む Markdown セクション。"""
-    return (
-        f"## PPI Network\n\n"
-        f"![PPI network of {gene}]({image_filename})\n\n"
+def ppi_md(gene: str, image_filename: str, partners: list[str] | None = None) -> str:
+    """PPI ネットワーク画像 + パートナー遺伝子リストを埋め込む Markdown セクション。"""
+    lines = [
+        "## PPI Network",
+        "",
+        f"![PPI network of {gene}]({image_filename})",
+        "",
         f"<sub><sup>★ = {gene} (target, 上部) ／ 下部 = PPI パートナー。"
         f"色 = データソース（IntAct / SIGNOR / Reactome、複数DB共通は強調色）"
-        f"</sup></sub>\n\n"
-    )
+        f"</sup></sub>",
+        "",
+    ]
+    if partners:
+        lines += [
+            f"**PPI Partners ({len(partners)} genes):** "
+            + ", ".join(f"`{p}`" for p in partners),
+            "",
+        ]
+    return "\n".join(lines)
 
 
 # ──────────────────────────────────────────────────────────────
