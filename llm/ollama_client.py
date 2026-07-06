@@ -22,10 +22,15 @@ class OllamaClient:
         max_tokens: int = 4096,
         stream_callback: Optional[Callable[[str], None]] = None,
         format: Optional[str] = None,
+        num_ctx: int = 16384,
     ) -> str:
         """Generate text. If stream_callback is provided, stream token-by-token.
 
         format="json" forces Ollama to emit syntactically valid JSON.
+        num_ctx: context window size. Must exceed prompt+generation length,
+            otherwise Ollama silently truncates the prompt and generation
+            stops almost immediately (the drug-hypothesis context is ~3-4k
+            tokens, well above the 2048/4096 defaults of small models).
         """
         use_stream = stream_callback is not None
         payload = {
@@ -35,6 +40,7 @@ class OllamaClient:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": num_ctx,
             },
         }
         if format:
