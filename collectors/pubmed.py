@@ -67,22 +67,34 @@ def get_gene_synonyms(gene_symbol: str) -> list[str]:
     except Exception:
         pass
 
-    # ── UniProt gene_names ──────────────────────────────────────────────────
+    # ── UniProt gene_names + protein_name ──────────────────────────────────
     try:
         r3 = requests.get("https://rest.uniprot.org/uniprotkb/search", params={
             "query": f"gene_exact:{gene_symbol} AND organism_id:9606 AND reviewed:true",
-            "fields": "gene_names",
+            "fields": "gene_names,protein_name",
             "format": "json",
             "size": 1,
         }, timeout=10)
         r3.raise_for_status()
         results = r3.json().get("results", [])
         if results:
-            for g in results[0].get("genes", []):
+            entry = results[0]
+            # 遺伝子シノニム
+            for g in entry.get("genes", []):
                 for syn in g.get("synonyms", []):
                     add(syn.get("value", ""))
                 for orf in g.get("orfNames", []):
                     add(orf.get("value", ""))
+            # タンパク質名（推奨名・別名・略称）
+            pd = entry.get("proteinDescription", {})
+            rec = pd.get("recommendedName", {})
+            add(rec.get("fullName", {}).get("value", ""))
+            for sn in rec.get("shortNames", []):
+                add(sn.get("value", ""))
+            for alt in pd.get("alternativeNames", []):
+                add(alt.get("fullName", {}).get("value", ""))
+                for sn in alt.get("shortNames", []):
+                    add(sn.get("value", ""))
     except Exception:
         pass
 
@@ -229,12 +241,21 @@ def search_pubmed(
           + (f"  MeSH: 「{mesh_heading}」" if mesh_heading else ""))
 
     # ── クエリ構築ヘルパー ────────────────────────────────────────────────────
+    def _q_term(term: str, field: str = "Title/Abstract") -> str:
+        """1単語は完全一致。複数単語は各単語を AND 結合（部分一致）。
+        3文字以下の短い語（略称など）は除外しない（PubMed が自動処理する）。
+        """
+        words = term.split()
+        if len(words) <= 1:
+            return f'"{term}"[{field}]'
+        return "(" + " AND ".join(f'"{w}"[{field}]' for w in words) + ")"
+
     def _q_gene_official() -> str:
-        return f'"{gene}"[Title/Abstract]'
+        return _q_term(gene)
 
     def _q_gene_syns(max_syn: int = 8) -> str:
         """公式シンボル + シノニムの OR クエリ（Title/Abstract）。"""
-        terms = [f'"{s}"[Title/Abstract]' for s in gene_syns[:max_syn + 1]]
+        terms = [_q_term(s) for s in gene_syns[:max_syn + 1]]
         return "(" + " OR ".join(terms) + ")"
 
     def _q_disease_mesh() -> str:
@@ -243,9 +264,7 @@ def search_pubmed(
 
     def _q_disease_text(max_syn: int = 4) -> str:
         """疾患名 + 略称シノニムの OR クエリ（Title/Abstract）。"""
-        # 短い略称（≦6文字）は誤ヒットしやすいので Title のみに限定したいが、
-        # ここでは Title/Abstract で展開し、スコアリングで品質を担保する。
-        terms = [f'"{s}"[Title/Abstract]' for s in disease_syns[:max_syn + 1]]
+        terms = [_q_term(s) for s in disease_syns[:max_syn + 1]]
         return "(" + " OR ".join(terms) + ")"
 
     def _search(term: str) -> list[str]:

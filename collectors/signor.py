@@ -1,12 +1,32 @@
 """SIGNOR — Signaling Network Open Resource (CC BY 4.0, 商用利用可).
 
 シグナル伝達ネットワークの因果関係データ（リン酸化・活性化・抑制など）。
-APIキー不要。全データをTSVで取得し、対象遺伝子でフィルタリング。
+APIキー不要。全データをTSVで取得し、ローカルにキャッシュして対象遺伝子でフィルタリング。
 """
 import io
+import time
 import requests
+from pathlib import Path
 
 SIGNOR_TSV = "https://signor.uniroma2.it/getData.php?organism=9606&format=tsv"
+
+_CACHE_DIR = Path(__file__).parent.parent / "ppi_cache"
+_SIGNOR_CACHE = _CACHE_DIR / "signor_9606.tsv"
+_CACHE_TTL = 7 * 24 * 3600  # 7日間
+
+
+def _get_signor_tsv() -> str:
+    """ローカルキャッシュから読み込む（古い場合は再ダウンロード）。"""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if _SIGNOR_CACHE.exists():
+        age = time.time() - _SIGNOR_CACHE.stat().st_mtime
+        if age < _CACHE_TTL:
+            return _SIGNOR_CACHE.read_text(encoding="utf-8")
+    print("  [SIGNOR] TSV ダウンロード中（初回 or 7日経過）...")
+    r = requests.get(SIGNOR_TSV, timeout=60)
+    r.raise_for_status()
+    _SIGNOR_CACHE.write_text(r.text, encoding="utf-8")
+    return r.text
 
 COLS = [
     "entityA", "typeA", "idA", "dbA",
@@ -20,13 +40,12 @@ COLS = [
 
 def get_interactions(gene_symbol: str) -> list[dict]:
     """Return SIGNOR causal interactions involving the gene (as entityA or entityB)."""
-    r = requests.get(SIGNOR_TSV, timeout=30)
-    r.raise_for_status()
+    text = _get_signor_tsv()
 
     results = []
     gene_upper = gene_symbol.upper()
 
-    for line in r.text.splitlines():
+    for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) < 9:
             continue

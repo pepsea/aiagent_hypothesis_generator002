@@ -2,10 +2,33 @@
 
 因果関係付きパスウェイ情報。g:Profilerよりも詳細な経路コンテキスト。
 ContentService API: https://reactome.org/ContentService
+相互作用データは ppi_cache/reactome/ にJSONキャッシュ（3日間有効）。
 """
+import json
+import time
 import requests
+from pathlib import Path
 
 REACTOME_API = "https://reactome.org/ContentService"
+
+_CACHE_DIR = Path(__file__).parent.parent / "ppi_cache" / "reactome"
+_CACHE_TTL = 3 * 24 * 3600  # 3日間
+
+
+def _cache_path(gene_symbol: str) -> Path:
+    return _CACHE_DIR / f"{gene_symbol.upper()}.json"
+
+
+def _load_cache(gene_symbol: str) -> list[dict] | None:
+    p = _cache_path(gene_symbol)
+    if p.exists() and time.time() - p.stat().st_mtime < _CACHE_TTL:
+        return json.loads(p.read_text(encoding="utf-8"))
+    return None
+
+
+def _save_cache(gene_symbol: str, data: list[dict]):
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _cache_path(gene_symbol).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
 def get_pathways(gene_symbol: str, uniprot_id: str = "", top_n: int = 15) -> list[dict]:
@@ -77,6 +100,10 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
     Returns:
         [{"source": gene_symbol, "target": partner, "effect": "", "mechanism": "Reactome"}]
     """
+    cached = _load_cache(gene_symbol)
+    if cached is not None:
+        return cached
+
     center = gene_symbol.upper()
 
     # まず UniProt ID を解決（Reactome は UniProt accession で検索）
@@ -95,6 +122,7 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
         pass
 
     if not uid:
+        _save_cache(gene_symbol, [])
         return []
 
     try:
@@ -104,6 +132,7 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
             timeout=20,
         )
         if r.status_code == 404:
+            _save_cache(gene_symbol, [])
             return []
         r.raise_for_status()
         data = r.json()
@@ -113,7 +142,6 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
     interactions = []
     for entry in data.get("entities", []):
         for interactor in entry.get("interactors", []):
-            # gene名を取得（なければ accession をフォールバック）
             partner = (interactor.get("geneName") or interactor.get("acc") or "").strip().upper()
             if not partner or partner == center:
                 continue
@@ -124,4 +152,5 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
                 "mechanism": "Reactome",
             })
 
+    _save_cache(gene_symbol, interactions)
     return interactions
