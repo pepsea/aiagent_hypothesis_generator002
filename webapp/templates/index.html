@@ -182,7 +182,9 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
     <div style="display:flex;flex-direction:column;gap:8px;">
       <div class="config-row">
         <label>モデル</label>
-        <input type="text" id="model-input" placeholder="qwen2.5:14b" value="qwen2.5:14b" style="flex:1;">
+        <select id="model-select" style="flex:1;">
+          <option value="">-- Ollama接続待ち --</option>
+        </select>
       </div>
       <div class="config-row">
         <label>言語</label>
@@ -272,20 +274,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
 async function checkOllama() {
   const el = document.getElementById("ollama-status");
+  const sel = document.getElementById("model-select");
   try {
     const r = await fetch("/api/ollama/status");
     const d = await r.json();
     if (d.available) {
       el.className = "status-pill ok";
       el.innerHTML = `<span class="dot"></span>Ollama OK`;
-      // populate model list from running models if input is empty default
       if (d.models && d.models.length > 0) {
-        const inp = document.getElementById("model-input");
-        if (!inp.value) inp.value = d.models[0];
+        const prev = sel.value;
+        sel.innerHTML = d.models.map(m =>
+          `<option value="${m}"${m === prev ? " selected" : ""}>${m}</option>`
+        ).join("");
+        // restore previous selection or keep first
+        if (!sel.value) sel.value = d.models[0];
       }
     } else {
       el.className = "status-pill err";
       el.innerHTML = `<span class="dot"></span>Ollama 未接続`;
+      sel.innerHTML = '<option value="">-- Ollama未接続 --</option>';
     }
   } catch {
     el.className = "status-pill err";
@@ -366,7 +373,7 @@ function startAnalysis() {
   }
   if (eventSource) { eventSource.close(); }
 
-  const model = document.getElementById("model-input").value || "qwen2.5:14b";
+  const model = document.getElementById("model-select").value;
   const lang  = document.getElementById("lang-select").value;
 
   // Reset UI
