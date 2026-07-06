@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drug Hypothesis Generator</title>
+<style>
+/* ── Reset & Base ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f8f9fa; --surface: #fff; --border: #e0e0e0;
+  --primary: #2563eb; --primary-dark: #1d4ed8;
+  --success: #16a34a; --warn: #d97706; --error: #dc2626;
+  --text: #1f2937; --text-sub: #6b7280;
+  --radius: 10px; --shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+       background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── Layout ────────────────────────────────────────────── */
+.app { display: grid; grid-template-columns: 340px 1fr; min-height: 100vh; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border);
+           padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+.main { padding: 24px; overflow-y: auto; }
+
+/* ── Header ────────────────────────────────────────────── */
+.app-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.app-header h1 { font-size: 16px; font-weight: 700; color: var(--primary); }
+.app-header .version { font-size: 11px; color: var(--text-sub); background: #eff6ff;
+                        padding: 2px 6px; border-radius: 99px; }
+.status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+               padding: 3px 9px; border-radius: 99px; background: #f3f4f6; color: var(--text-sub); }
+.status-pill.ok  { background: #dcfce7; color: var(--success); }
+.status-pill.err { background: #fee2e2; color: var(--error); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+/* ── Section card ──────────────────────────────────────── */
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.card-title { font-size: 12px; font-weight: 600; text-transform: uppercase;
+              letter-spacing: .05em; color: var(--text-sub); margin-bottom: 12px; }
+
+/* ── Inputs ────────────────────────────────────────────── */
+input[type=text], textarea, select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 7px; font-size: 13px; color: var(--text);
+  background: var(--surface); transition: border-color .15s; outline: none; }
+input[type=text]:focus, textarea:focus, select:focus { border-color: var(--primary); }
+textarea { resize: vertical; min-height: 90px; font-family: monospace; }
+
+/* ── Buttons ───────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+       border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer;
+       border: none; transition: background .15s, transform .1s; }
+.btn:active { transform: scale(.97); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: #f3f4f6; color: var(--text); }
+.btn-secondary:hover { background: #e5e7eb; }
+.btn-danger  { background: var(--error); color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Disease list ──────────────────────────────────────── */
+#disease-list { max-height: 180px; overflow-y: auto; margin-top: 8px;
+                border: 1px solid var(--border); border-radius: 7px; display: none; }
+.disease-item { padding: 8px 12px; cursor: pointer; font-size: 13px;
+                border-bottom: 1px solid var(--border); transition: background .1s; }
+.disease-item:last-child { border-bottom: none; }
+.disease-item:hover { background: #eff6ff; }
+.disease-item.selected { background: #dbeafe; font-weight: 600; }
+.disease-desc { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+.selected-badge { background: #dbeafe; border: 1px solid #bfdbfe; border-radius: 6px;
+                  padding: 6px 10px; font-size: 12px; margin-top: 8px; display: none; }
+
+/* ── Config row ────────────────────────────────────────── */
+.config-row { display: flex; gap: 8px; align-items: center; }
+.config-row label { font-size: 12px; color: var(--text-sub); white-space: nowrap; }
+.config-row select { flex: 1; }
+
+/* ── Main area tabs ────────────────────────────────────── */
+.main-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.main-header h2 { font-size: 18px; font-weight: 700; }
+.run-bar { display: flex; gap: 8px; align-items: center; }
+
+/* ── Progress log ──────────────────────────────────────── */
+#progress-panel { display: none; }
+.progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.progress-log { background: #111; border-radius: 8px; padding: 14px; font-family: monospace;
+                font-size: 12px; color: #d4d4d4; height: 200px; overflow-y: auto; line-height: 1.6; }
+.progress-log .ok  { color: #86efac; }
+.progress-log .err { color: #fca5a5; }
+.progress-log .info{ color: #93c5fd; }
+.progress-log .tok { color: #fde68a; }
+
+/* ── Gene result cards ─────────────────────────────────── */
+#results-panel { margin-top: 28px; }
+.gene-card { background: var(--surface); border: 1px solid var(--border);
+             border-radius: var(--radius); margin-bottom: 20px; overflow: hidden;
+             box-shadow: var(--shadow); }
+.gene-card-header { padding: 14px 18px; display: flex; align-items: center;
+                    justify-content: space-between; border-bottom: 1px solid var(--border);
+                    background: #fafafa; cursor: pointer; }
+.gene-card-header h3 { font-size: 15px; font-weight: 700; }
+.gene-status { font-size: 12px; padding: 3px 9px; border-radius: 99px; font-weight: 600; }
+.gene-status.running { background: #fef9c3; color: var(--warn); }
+.gene-status.done    { background: #dcfce7; color: var(--success); }
+.gene-status.error   { background: #fee2e2; color: var(--error); }
+.gene-card-body { padding: 0; }
+
+/* Tabs */
+.tabs { display: flex; border-bottom: 1px solid var(--border); background: #fafafa; }
+.tab-btn { padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+           border: none; background: none; color: var(--text-sub); border-bottom: 2px solid transparent;
+           transition: color .15s, border-color .15s; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-content { padding: 18px; display: none; }
+.tab-content.active { display: block; }
+
+/* Hypothesis streaming */
+.hypothesis-stream { font-size: 13.5px; line-height: 1.8; white-space: pre-wrap;
+                     font-family: "Georgia", serif; max-height: 600px; overflow-y: auto;
+                     padding-right: 4px; }
+.hypothesis-stream h2 { font-size: 15px; font-weight: 700; margin: 16px 0 8px;
+                         color: var(--primary); border-bottom: 1px solid #dbeafe; padding-bottom: 4px; }
+.hypothesis-stream h3 { font-size: 13px; font-weight: 700; margin: 12px 0 6px; }
+.hypothesis-stream ul, .hypothesis-stream ol { padding-left: 20px; }
+.hypothesis-stream table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.hypothesis-stream th, .hypothesis-stream td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+.hypothesis-stream th { background: #f3f4f6; }
+.cursor { display: inline-block; width: 2px; height: 14px; background: var(--primary);
+          animation: blink 1s step-end infinite; vertical-align: text-bottom; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* PPI */
+.ppi-image { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+.partner-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.partner-tag { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 5px;
+               padding: 3px 8px; font-size: 12px; font-family: monospace; color: var(--primary); }
+.partner-tag.multi { background: #f5f3ff; border-color: #ddd6fe; color: #7c3aed; }
+
+/* Enrichment table */
+.enr-source { font-size: 13px; font-weight: 700; margin: 14px 0 6px; color: var(--text); }
+.enr-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+.enr-table th { background: #f3f4f6; padding: 6px 10px; text-align: left; border: 1px solid var(--border); }
+.enr-table td { padding: 5px 10px; border: 1px solid var(--border); vertical-align: top; }
+.enr-table tr:hover td { background: #fafafa; }
+.pval { font-family: monospace; color: var(--primary); }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-sub); }
+.empty-state svg { opacity: .25; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* Download */
+.download-row { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════════ -->
+<aside class="sidebar">
+
+  <div>
+    <div class="app-header">
+      <h1>🔬 Drug Hypothesis</h1>
+      <span class="version">v2</span>
+    </div>
+    <span id="ollama-status" class="status-pill">● Ollama確認中...</span>
+  </div>
+
+  <!-- Config -->
+  <div class="card">
+    <div class="card-title">⚙ 設定</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div class="config-row">
+        <label>モデル</label>
+        <input type="text" id="model-input" placeholder="qwen2.5:14b" value="qwen2.5:14b" style="flex:1;">
+      </div>
+      <div class="config-row">
+        <label>言語</label>
+        <select id="lang-select">
+          <option value="en" selected>English</option>
+          <option value="ja">日本語</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Disease search -->
+  <div class="card">
+    <div class="card-title">① 疾患選択</div>
+    <div style="display:flex;gap:6px;">
+      <input type="text" id="disease-input" placeholder="例: Parkinson disease" style="flex:1;">
+      <button class="btn btn-secondary btn-sm" onclick="searchDisease()">検索</button>
+    </div>
+    <div id="disease-list"></div>
+    <div id="selected-disease" class="selected-badge"></div>
+  </div>
+
+  <!-- Gene list -->
+  <div class="card" style="flex:1;">
+    <div class="card-title">② 遺伝子リスト</div>
+    <textarea id="gene-input" placeholder="1行1遺伝子（HGNC シンボル）&#10;例:&#10;BRCA1&#10;TP53&#10;EGFR"></textarea>
+    <button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;"
+            onclick="validateGenes()">HGNC 検証</button>
+    <div id="gene-validation" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+
+  <!-- Run -->
+  <button id="run-btn" class="btn btn-primary" style="width:100%;justify-content:center;"
+          onclick="startAnalysis()">▶ 解析開始</button>
+
+</aside>
+
+<!-- ═══ MAIN ════════════════════════════════════════════════════════════════ -->
+<main class="main">
+
+  <div class="main-header">
+    <h2 id="main-title">Drug Hypothesis Generator</h2>
+    <div class="run-bar">
+      <span id="batch-status" style="font-size:13px;color:var(--text-sub);"></span>
+      <button id="stop-btn" class="btn btn-danger btn-sm" style="display:none;" onclick="stopAnalysis()">■ 停止</button>
+    </div>
+  </div>
+
+  <!-- Progress log -->
+  <div id="progress-panel" class="card">
+    <div class="progress-header">
+      <span class="card-title" style="margin:0;">進捗ログ</span>
+      <button class="btn btn-secondary btn-sm" onclick="clearLog()">クリア</button>
+    </div>
+    <div id="progress-log" class="progress-log"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results-panel">
+    <div class="empty-state" id="empty-state">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+      </svg>
+      <p>疾患と遺伝子リストを選択して解析を開始してください</p>
+    </div>
+    <div id="gene-cards"></div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let selectedDisease = null;
+let validatedGenes  = [];
+let eventSource     = null;
+let geneState       = {};  // gene -> {tokens:[], done:false}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  checkOllama();
+  setInterval(checkOllama, 30000);
+  document.getElementById("disease-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") searchDisease();
+  });
+});
+
+async function checkOllama() {
+  const el = document.getElementById("ollama-status");
+  try {
+    const r = await fetch("/api/ollama/status");
+    const d = await r.json();
+    if (d.available) {
+      el.className = "status-pill ok";
+      el.innerHTML = `<span class="dot"></span>Ollama OK`;
+      // populate model list from running models if input is empty default
+      if (d.models && d.models.length > 0) {
+        const inp = document.getElementById("model-input");
+        if (!inp.value) inp.value = d.models[0];
+      }
+    } else {
+      el.className = "status-pill err";
+      el.innerHTML = `<span class="dot"></span>Ollama 未接続`;
+    }
+  } catch {
+    el.className = "status-pill err";
+    el.innerHTML = `<span class="dot"></span>サーバーエラー`;
+  }
+}
+
+// ── Disease search ─────────────────────────────────────────────────────────
+async function searchDisease() {
+  const q = document.getElementById("disease-input").value.trim();
+  if (!q) return;
+  const listEl = document.getElementById("disease-list");
+  listEl.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--text-sub);">検索中...</div>';
+  listEl.style.display = "block";
+  try {
+    const r = await fetch("/api/disease/search", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({query: q})
+    });
+    const d = await r.json();
+    if (!d.results || d.results.length === 0) {
+      listEl.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--text-sub);">見つかりませんでした</div>';
+      return;
+    }
+    listEl.innerHTML = d.results.map(item => `
+      <div class="disease-item" onclick="selectDisease(${JSON.stringify(item).replace(/"/g,'&quot;')})">
+        <div>${item.name}</div>
+        <div class="disease-desc">${item.description || item.id}</div>
+      </div>`).join("");
+  } catch (e) {
+    listEl.innerHTML = `<div style="padding:8px 12px;font-size:12px;color:var(--error);">エラー: ${e.message}</div>`;
+  }
+}
+
+function selectDisease(item) {
+  selectedDisease = item;
+  document.querySelectorAll(".disease-item").forEach(el => el.classList.remove("selected"));
+  event.currentTarget.classList.add("selected");
+  const badge = document.getElementById("selected-disease");
+  badge.style.display = "block";
+  badge.innerHTML = `✓ <strong>${item.name}</strong><br><span style="font-size:11px;color:var(--text-sub);">${item.id}</span>`;
+  document.getElementById("main-title").textContent = `${item.name} — 仮説生成`;
+}
+
+// ── Gene validation ────────────────────────────────────────────────────────
+async function validateGenes() {
+  const raw = document.getElementById("gene-input").value
+    .split(/[\n,\s]+/).map(g => g.trim().toUpperCase()).filter(Boolean);
+  if (!raw.length) return;
+  const valEl = document.getElementById("gene-validation");
+  valEl.innerHTML = "検証中...";
+  try {
+    const r = await fetch("/api/genes/validate", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({genes: raw})
+    });
+    const d = await r.json();
+    validatedGenes = d.results.filter(g => g.valid !== false).map(g => g.symbol);
+    valEl.innerHTML = d.results.map(g =>
+      `<span style="margin-right:8px;color:${g.valid ? 'var(--success)' : g.valid===null ? 'var(--warn)' : 'var(--error)'}">
+        ${g.valid ? '✓' : g.valid===null ? '?' : '✗'} ${g.symbol}
+      </span>`).join("");
+  } catch (e) {
+    validatedGenes = raw;
+    valEl.innerHTML = `<span style="color:var(--warn)">検証スキップ（${raw.join(", ")}）</span>`;
+  }
+}
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+function startAnalysis() {
+  if (!selectedDisease) { alert("疾患を選択してください"); return; }
+  if (!validatedGenes.length) {
+    // try raw input
+    const raw = document.getElementById("gene-input").value
+      .split(/[\n,\s]+/).map(g => g.trim().toUpperCase()).filter(Boolean);
+    if (!raw.length) { alert("遺伝子を入力してください"); return; }
+    validatedGenes = raw;
+  }
+  if (eventSource) { eventSource.close(); }
+
+  const model = document.getElementById("model-input").value || "qwen2.5:14b";
+  const lang  = document.getElementById("lang-select").value;
+
+  // Reset UI
+  geneState = {};
+  document.getElementById("empty-state").style.display = "none";
+  document.getElementById("gene-cards").innerHTML = "";
+  document.getElementById("progress-panel").style.display = "block";
+  document.getElementById("stop-btn").style.display = "inline-flex";
+  document.getElementById("run-btn").disabled = true;
+  document.getElementById("batch-status").textContent = "";
+
+  logMsg(`解析開始: ${validatedGenes.length} 遺伝子 × ${selectedDisease.name}`, "info");
+
+  // Pre-create gene cards
+  validatedGenes.forEach(gene => {
+    geneState[gene] = { tokens: [], done: false };
+    createGeneCard(gene);
+  });
+
+  fetch("/api/analyze", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      genes: validatedGenes,
+      disease_name: selectedDisease.name,
+      disease_id: selectedDisease.id,
+      model, lang
+    })
+  }).then(resp => {
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    function read() {
+      reader.read().then(({ done, value }) => {
+        if (done) { onBatchFinished(); return; }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        lines.forEach(line => {
+          if (line.startsWith("data: ")) {
+            try { handleEvent(JSON.parse(line.slice(6))); } catch {}
+          }
+        });
+        read();
+      }).catch(() => onBatchFinished());
+    }
+    read();
+  }).catch(e => {
+    logMsg(`エラー: ${e.message}`, "err");
+    onBatchFinished();
+  });
+}
+
+function stopAnalysis() {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  onBatchFinished();
+  logMsg("停止しました", "err");
+}
+
+function onBatchFinished() {
+  document.getElementById("stop-btn").style.display = "none";
+  document.getElementById("run-btn").disabled = false;
+  removeCursors();
+}
+
+// ── SSE event handler ───────────────────────────────────────────────────────
+function handleEvent(ev) {
+  switch (ev.type) {
+    case "start":
+      logMsg(`開始: ${ev.total} 遺伝子 / ${ev.disease}`, "info"); break;
+    case "gene_start":
+      logMsg(`[${ev.index+1}/${ev.total}] ${ev.gene} 処理開始`, "info");
+      setGeneStatus(ev.gene, "running", "処理中..."); break;
+    case "progress":
+      logMsg(`  ${ev.gene}: ${ev.message}`); break;
+    case "ppi_done":
+      logMsg(`  ${ev.gene}: PPI ${ev.nodes}nodes / ${ev.edges}edges`, "ok");
+      if (ev.partners && ev.partners.length) {
+        renderPartners(ev.gene, ev.partners);
+      }
+      break;
+    case "token":
+      appendToken(ev.gene, ev.token); break;
+    case "gene_done":
+      logMsg(`  ✓ ${ev.gene} 完了`, "ok");
+      setGeneStatus(ev.gene, "done", "✓ 完了");
+      finalizeGene(ev.gene, ev); break;
+    case "gene_error":
+      logMsg(`  ✗ ${ev.gene}: ${ev.error}`, "err");
+      setGeneStatus(ev.gene, "error", "エラー"); break;
+    case "batch_done":
+      logMsg(`\n全処理完了 (${ev.total} 遺伝子)`, "ok");
+      document.getElementById("batch-status").textContent = `完了: ${ev.total} 遺伝子`; break;
+  }
+}
+
+// ── Gene card ─────────────────────────────────────────────────────────────
+function createGeneCard(gene) {
+  const id = cardId(gene);
+  const el = document.createElement("div");
+  el.className = "gene-card";
+  el.id = id;
+  el.innerHTML = `
+    <div class="gene-card-header" onclick="toggleCard('${id}')">
+      <h3>${gene}</h3>
+      <span class="gene-status running" id="${id}-status">待機中...</span>
+    </div>
+    <div class="gene-card-body" id="${id}-body">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="showTab('${id}','hyp',event)">仮説</button>
+        <button class="tab-btn" onclick="showTab('${id}','ppi',event)">PPI</button>
+        <button class="tab-btn" onclick="showTab('${id}','enr',event)">エンリッチメント</button>
+        <button class="tab-btn" onclick="showTab('${id}','dl',event)">ダウンロード</button>
+      </div>
+      <div class="tab-content active" id="${id}-hyp">
+        <div class="hypothesis-stream" id="${id}-stream">
+          <span style="color:var(--text-sub);font-style:italic;">生成待機中...</span>
+        </div>
+      </div>
+      <div class="tab-content" id="${id}-ppi">
+        <div id="${id}-ppi-content"><span style="color:var(--text-sub);font-size:13px;">PPI取得中...</span></div>
+      </div>
+      <div class="tab-content" id="${id}-enr">
+        <div id="${id}-enr-content"><span style="color:var(--text-sub);font-size:13px;">エンリッチメント取得中...</span></div>
+      </div>
+      <div class="tab-content" id="${id}-dl">
+        <div id="${id}-dl-content"><span style="color:var(--text-sub);font-size:13px;">完了後に表示されます</span></div>
+      </div>
+    </div>`;
+  document.getElementById("gene-cards").appendChild(el);
+}
+
+function cardId(gene) { return "card-" + gene.replace(/[^a-zA-Z0-9]/g, "_"); }
+
+function toggleCard(id) {
+  const body = document.getElementById(id + "-body");
+  body.style.display = body.style.display === "none" ? "block" : "";
+}
+
+function showTab(cardId, tab, e) {
+  e.stopPropagation();
+  document.querySelectorAll(`#${cardId} .tab-btn`).forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(`#${cardId} .tab-content`).forEach(c => c.classList.remove("active"));
+  e.currentTarget.classList.add("active");
+  document.getElementById(`${cardId}-${tab}`).classList.add("active");
+}
+
+function setGeneStatus(gene, cls, text) {
+  const el = document.getElementById(cardId(gene) + "-status");
+  if (el) { el.className = `gene-status ${cls}`; el.textContent = text; }
+}
+
+function appendToken(gene, tok) {
+  const id = cardId(gene);
+  const streamEl = document.getElementById(id + "-stream");
+  if (!streamEl) return;
+  if (geneState[gene].tokens.length === 0) {
+    streamEl.innerHTML = '<span class="cursor"></span>';
+  }
+  geneState[gene].tokens.push(tok);
+  // Render markdown-like HTML from accumulated text
+  const fullText = geneState[gene].tokens.join("");
+  streamEl.innerHTML = renderMarkdown(fullText) + '<span class="cursor"></span>';
+  streamEl.scrollTop = streamEl.scrollHeight;
+}
+
+function renderMarkdown(text) {
+  // Minimal markdown rendering
+  return text
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^\| (.+) \|$/gm, (m) => {
+      const cells = m.slice(2,-2).split(" | ");
+      if (cells.every(c => /^-+$/.test(c.trim()))) return "";
+      const tag = "td";
+      return "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+    })
+    .replace(/(<tr>.*<\/tr>\n?)+/g, s => `<table>${s}</table>`)
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+
+function removeCursors() {
+  document.querySelectorAll(".cursor").forEach(c => c.remove());
+}
+
+function renderPartners(gene, partners) {
+  const id = cardId(gene);
+  const el = document.getElementById(id + "-ppi-content");
+  if (!el) return;
+  const tags = partners.map(p => `<span class="partner-tag">${p}</span>`).join("");
+  el.innerHTML = `
+    <p style="font-size:13px;color:var(--text-sub);margin-bottom:10px;">PPIパートナー (${partners.length}遺伝子)</p>
+    <div class="partner-list">${tags}</div>
+    <p style="margin-top:14px;font-size:12px;color:var(--text-sub);">ネットワーク画像は解析完了後に表示されます</p>`;
+}
+
+function finalizeGene(gene, ev) {
+  const id = cardId(gene);
+  // PPI image
+  if (ev.ppi_image) {
+    const imgPath = ev.ppi_image.replace(/\\/g, "/");
+    const imgUrl = "/reports/" + imgPath.split("/reports/").slice(1).join("/reports/");
+    const el = document.getElementById(id + "-ppi-content");
+    const partnerHtml = ev.partners && ev.partners.length
+      ? `<div class="partner-list" style="margin-top:14px;">
+           ${ev.partners.map(p=>`<span class="partner-tag">${p}</span>`).join("")}
+         </div>`
+      : "";
+    if (el) el.innerHTML = `
+      <img src="${imgUrl}" class="ppi-image" alt="PPI network">
+      <p style="margin-top:8px;font-size:12px;color:var(--text-sub);">
+        ★ = ${gene} (target) ／ 色 = データソース（IntAct/SIGNOR/Reactome）
+      </p>
+      ${partnerHtml}`;
+  }
+  // Enrichment
+  if (ev.enrichment_results && ev.enrichment_results.length) {
+    const el = document.getElementById(id + "-enr-content");
+    if (el) el.innerHTML = renderEnrichment(ev.enrichment_results);
+  }
+  // Download
+  if (ev.path) {
+    const el = document.getElementById(id + "-dl-content");
+    const relPath = ev.path.replace(/\\/g,"/").split("/reports/").slice(1).join("/reports/");
+    if (el) el.innerHTML = `
+      <p style="font-size:13px;margin-bottom:12px;">レポートファイル</p>
+      <div class="download-row">
+        <a href="/reports/${relPath}" target="_blank" class="btn btn-secondary btn-sm">
+          📄 Markdownを開く
+        </a>
+      </div>
+      <p style="font-size:11px;color:var(--text-sub);margin-top:8px;">${ev.path}</p>`;
+  }
+}
+
+function renderEnrichment(results) {
+  const bySrc = {};
+  results.forEach(r => {
+    if (!bySrc[r.source]) bySrc[r.source] = [];
+    bySrc[r.source].push(r);
+  });
+  const srcLabel = {"GO:BP":"GO Biological Process","GO:MF":"GO Molecular Function",
+                    "GO:CC":"GO Cellular Component","REAC":"Reactome","WP":"WikiPathways"};
+  let html = "";
+  for (const [src, terms] of Object.entries(bySrc)) {
+    html += `<div class="enr-source">${srcLabel[src] || src}</div>
+    <table class="enr-table">
+      <thead><tr><th>Term</th><th>p-value</th><th>Genes (overlap)</th></tr></thead>
+      <tbody>`;
+    terms.slice(0,5).forEach(t => {
+      const genes = (t.genes || []).slice(0,6).join(", ");
+      html += `<tr>
+        <td>${t.term_name.slice(0,65)} <small style="color:var(--text-sub)">${t.term_id||""}</small></td>
+        <td class="pval">${t.p_value.toExponential(2)}</td>
+        <td>${genes} (${t.intersection_size||0})</td>
+      </tr>`;
+    });
+    html += "</tbody></table>";
+  }
+  return html || '<span style="color:var(--text-sub);font-size:13px;">有意な項目なし (FDR<0.05)</span>';
+}
+
+// ── Progress log ────────────────────────────────────────────────────────────
+function logMsg(msg, cls = "") {
+  const el = document.getElementById("progress-log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById("progress-log").innerHTML = "";
+}
+</script>
+</body>
+</html>
