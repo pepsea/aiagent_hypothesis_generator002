@@ -841,20 +841,30 @@ function renderDataDetail(source, data) {
       </div>
       <div style="font-size:12px;color:var(--text-sub);">${esc(data.essentiality||"")}</div>`;
     }
-    if (source === "gtex" && data.tissues) {
-      const rows = data.tissues.map(t => {
-        const pct = Math.min(100, (t.tpm / (data.tissues[0].tpm||1)) * 100);
+    if (source === "gtex" && data) {
+      const tissues = data.tissues || [];
+      const maxTpm = tissues[0] ? tissues[0].tpm : 1;
+      const rows = tissues.map(t => {
+        const pct = Math.min(100, ((+t.tpm) / (maxTpm||1)) * 100);
         return `<tr><td>${esc(t.tissue)}</td>
-          <td><div style="background:#dbeafe;width:${pct}%;min-width:4px;height:12px;border-radius:3px;display:inline-block;"></div>
+          <td><div style="background:#dbeafe;width:${pct.toFixed(0)}%;min-width:4px;height:12px;border-radius:3px;display:inline-block;"></div>
               <span style="margin-left:6px;">${(+t.tpm).toFixed(1)} TPM</span></td></tr>`;
       }).join("");
-      return `<table class="data-table"><thead><tr><th>組織</th><th>発現量</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const keyRows = (data.key_tissues||[]).filter(t=>t.tpm>0).map(t=>`<tr><td>${esc(t.tissue)}</td><td>${(+t.tpm).toFixed(1)} TPM</td></tr>`).join("");
+      return `<div class="data-section-title">全組織 Top ${tissues.length}</div>
+        <table class="data-table"><thead><tr><th>組織</th><th>発現量</th></tr></thead><tbody>${rows}</tbody></table>
+        ${keyRows?`<div class="data-section-title" style="margin-top:12px;">安全性関連組織</div>
+        <table class="data-table"><thead><tr><th>組織</th><th>TPM</th></tr></thead><tbody>${keyRows}</tbody></table>`:""}`;
     }
     if (source === "hpa" && data) {
       const loc = (data.subcellular||[]).join(", ");
-      const rows = (data.tissues||[]).map(t=>`<tr><td>${esc(t.tissue||t.organ||"")}</td><td>${esc(t.level||t.expression_level||"")}</td></tr>`).join("");
-      return `${loc?`<div style="font-size:12px;margin-bottom:8px;"><strong>細胞内局在:</strong> ${esc(loc)}</div>`:""}
-        ${rows?`<table class="data-table"><thead><tr><th>組織</th><th>発現レベル</th></tr></thead><tbody>${rows}</tbody></table>`:""}`;
+      const rnaRows = (data.tissues||[]).map(t=>`<tr><td>${esc(t.tissue||"")}</td><td>${esc(t.level||"")}</td></tr>`).join("");
+      const protRows = (data.protein_tissue||[]).map(t=>`<tr><td>${esc(t.tissue||"")}</td><td>${esc(t.level||"")}</td></tr>`).join("");
+      return `${loc?`<div style="font-size:12px;margin-bottom:10px;"><strong>細胞内局在:</strong> ${esc(loc)}</div>`:""}
+        ${rnaRows?`<div class="data-section-title">RNA 発現 (nTPM)</div>
+        <table class="data-table"><thead><tr><th>組織</th><th>発現量</th></tr></thead><tbody>${rnaRows}</tbody></table>`:""}
+        ${protRows?`<div class="data-section-title" style="margin-top:10px;">タンパク質発現 (intensity)</div>
+        <table class="data-table"><thead><tr><th>組織</th><th>強度</th></tr></thead><tbody>${protRows}</tbody></table>`:""}`;
     }
     if (source === "clinicaltrials" && data.trials) {
       const rows = data.trials.map(t=>`<tr><td>${esc(t.title)}</td>

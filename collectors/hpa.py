@@ -1,79 +1,73 @@
-"""Human Protein Atlas — tissue/cell/pathology expression (CC BY-SA 4.0, 商用利用可).
+"""Human Protein Atlas — tissue/cell expression (CC BY-SA 4.0, 商用利用可).
 
-タンパク質レベルの発現・病理データ。mRNA(GTEx)との比較に有用。
-API: https://www.proteinatlas.org/{gene}.json
+API: https://www.proteinatlas.org/{ENSG_ID}.json
 """
 import requests
+from collectors._ensembl import resolve_ensg
 
 HPA_BASE = "https://www.proteinatlas.org"
 
 
 def get_expression_profile(gene_symbol: str) -> dict:
-    """Return HPA tissue expression and disease pathology data.
+    """Return HPA tissue expression and subcellular localisation.
 
     Returns:
         {
-          "tissue_expression": [{tissue, level, reliability}],
+          "tissue_expression": [{tissue, level}],   # RNA nTPM, sorted descending
+          "protein_tissue":    [{tissue, level}],   # protein intensity (qualitative)
           "subcellular":       [str],
-          "cancer_expression": [{cancer, high_pct, low_pct}],
-          "secretome_class":   str,
           "protein_class":     [str],
           "url":               str,
         }
     """
-    url = f"{HPA_BASE}/{gene_symbol}.json"
+    ensg = resolve_ensg(gene_symbol)
+    if not ensg:
+        return {"error": f"Could not resolve ENSG for {gene_symbol}"}
+
+    url = f"{HPA_BASE}/{ensg}.json"
     try:
         r = requests.get(url, timeout=20)
         if r.status_code == 404:
-            return {"error": f"{gene_symbol} not found in HPA"}
+            return {"error": f"{gene_symbol} ({ensg}) not found in HPA"}
         r.raise_for_status()
         data = r.json()
     except Exception as e:
         return {"error": str(e)}
 
-    # 組織発現（タンパク質レベル）
+    # RNA tissue expression — nTPM dict {tissue: str_or_float}
+    rna_tissue = data.get("RNA tissue specific nTPM") or {}
     tissue_expr = []
-    for entry in (data.get("Normal tissue") or []):
-        level = entry.get("Level", "")
-        if level in ("High", "Medium", "Low"):
-            tissue_expr.append({
-                "tissue":      entry.get("Tissue", ""),
-                "cell_type":   entry.get("Cell type", ""),
-                "level":       level,
-                "reliability": entry.get("Reliability", ""),
-            })
+    for tissue, val in rna_tissue.items():
+        try:
+            tpm = float(val)
+        except (TypeError, ValueError):
+            tpm = 0.0
+        tissue_expr.append({"tissue": tissue, "level": f"{tpm:.1f} nTPM", "tpm": tpm})
+    tissue_expr.sort(key=lambda x: x["tpm"], reverse=True)
+    tissue_expr = tissue_expr[:15]
 
-    # 細胞内局在
-    subcellular = list({
-        loc.get("Location", "")
-        for loc in (data.get("Subcellular location") or [])
-        if loc.get("Location")
-    })
+    # Protein tissue intensity (qualitative)
+    prot_tissue = data.get("Protein tissue specific Intensity") or {}
+    prot_expr = [{"tissue": t, "level": v} for t, v in prot_tissue.items()]
 
-    # がん病理発現
-    cancer_expr = []
-    for entry in (data.get("Pathology") or [])[:10]:
-        cancer_expr.append({
-            "cancer":    entry.get("Cancer", ""),
-            "high_pct":  entry.get("High", 0),
-            "medium_pct":entry.get("Medium", 0),
-            "low_pct":   entry.get("Low", 0),
-            "not_det":   entry.get("Not detected", 0),
-        })
+    # Subcellular localisation
+    subcellular = []
+    for k in ("Subcellular main location", "Subcellular additional location", "Subcellular location"):
+        val = data.get(k)
+        if isinstance(val, list):
+            subcellular.extend(val)
+        elif isinstance(val, str) and val:
+            subcellular.append(val)
+    subcellular = list(dict.fromkeys(subcellular))
 
-    protein_class  = data.get("Protein class", [])
-    secretome      = data.get("Secretome location", "")
-
-    # 高発現組織のみ絞り込み（上位10件）
-    high_tissues = [t for t in tissue_expr if t["level"] == "High"][:10]
-    if not high_tissues:
-        high_tissues = tissue_expr[:10]
+    protein_class = data.get("Protein class") or []
+    if isinstance(protein_class, str):
+        protein_class = [protein_class]
 
     return {
-        "tissue_expression": high_tissues,
+        "tissue_expression": tissue_expr,
+        "protein_tissue":    prot_expr,
         "subcellular":       subcellular,
-        "cancer_expression": cancer_expr,
-        "protein_class":     protein_class if isinstance(protein_class, list) else [protein_class],
-        "secretome_class":   secretome,
-        "url": f"{HPA_BASE}/{gene_symbol}",
+        "protein_class":     protein_class,
+        "url": f"{HPA_BASE}/{ensg}",
     }

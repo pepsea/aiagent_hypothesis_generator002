@@ -21,7 +21,7 @@ query($gene: String!) {
         interactionScore
         interactionTypes { type directionality }
         sources { sourceDbName fullName }
-        pmids
+        publications { pmid }
       }
     }
   }
@@ -30,12 +30,7 @@ query($gene: String!) {
 
 
 def get_interactions(gene_symbol: str, max_results: int = 20) -> list[dict]:
-    """Return drug-gene interactions from DGIdb.
-
-    Returns:
-        [{drug_name, approved, interaction_type, directionality,
-          score, sources, pmids}]
-    """
+    """Return drug-gene interactions from DGIdb."""
     try:
         r = requests.post(
             DGIDB_API,
@@ -44,7 +39,10 @@ def get_interactions(gene_symbol: str, max_results: int = 20) -> list[dict]:
         )
         r.raise_for_status()
         data = r.json()
-    except Exception as e:
+    except Exception:
+        return []
+
+    if data.get("errors"):
         return []
 
     nodes = (data.get("data", {}).get("genes", {}).get("nodes") or [])
@@ -67,18 +65,17 @@ def get_interactions(gene_symbol: str, max_results: int = 20) -> list[dict]:
         directionality = i_types[0].get("directionality", "") if i_types else ""
 
         sources = [s.get("sourceDbName", "") for s in (ix.get("sources") or [])]
-        pmids   = (ix.get("pmids") or [])[:3]
+        pmids   = [p.get("pmid", "") for p in (ix.get("publications") or [])][:3]
 
         results.append({
-            "drug_name":      drug.get("name", ""),
-            "approved":       drug.get("approved", False),
+            "drug_name":        drug.get("name", ""),
+            "approved":         drug.get("approved", False),
             "interaction_type": i_type,
-            "directionality": directionality,
-            "score":          ix.get("interactionScore"),
-            "sources":        sources,
-            "pmids":          pmids,
+            "directionality":   directionality,
+            "score":            ix.get("interactionScore"),
+            "sources":          sources,
+            "pmids":            pmids,
         })
 
-    # approved 優先、score 降順
     results.sort(key=lambda x: (x["approved"] is True, x["score"] or 0), reverse=True)
     return results[:max_results]

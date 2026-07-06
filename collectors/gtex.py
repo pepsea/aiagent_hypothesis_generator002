@@ -1,55 +1,45 @@
 """GTEx — tissue gene expression (CC BY 4.0, 商用利用可).
 
-組織別発現プロファイルからモダリティ選択・副作用リスクを推定。
-API: https://gtexportal.org/api/v2
+API: https://gtexportal.org/api/v2  (v2 requires Ensembl geneId)
 """
 import requests
+from collectors._ensembl import resolve_ensg
 
 GTEX_API = "https://gtexportal.org/api/v2"
 
-# 疾患関連・安全性評価に重要な組織リスト
 KEY_TISSUES = {
-    "Heart_Left_Ventricle":    "Heart (left ventricle)",
-    "Liver":                   "Liver",
-    "Kidney_Cortex":           "Kidney (cortex)",
-    "Brain_Frontal_Cortex_Ba9":"Brain (frontal cortex)",
-    "Lung":                    "Lung",
-    "Muscle_Skeletal":         "Skeletal muscle",
-    "Colon_Sigmoid":           "Colon",
-    "Whole_Blood":             "Whole blood",
-    "Adipose_Subcutaneous":    "Adipose tissue",
-    "Skin_Sun_Exposed_Lower_leg": "Skin",
+    "Heart_Left_Ventricle":     "Heart (left ventricle)",
+    "Liver":                    "Liver",
+    "Kidney_Cortex":            "Kidney (cortex)",
+    "Brain_Frontal_Cortex_Ba9": "Brain (frontal cortex)",
+    "Brain_Substantia_nigra":   "Brain (substantia nigra)",
+    "Lung":                     "Lung",
+    "Muscle_Skeletal":          "Skeletal muscle",
+    "Colon_Sigmoid":            "Colon",
+    "Whole_Blood":              "Whole blood",
+    "Adipose_Subcutaneous":     "Adipose tissue",
 }
 
 
 def get_tissue_expression(gene_symbol: str, top_n: int = 10) -> dict:
-    """Return median TPM expression per tissue for the gene.
+    """Return median TPM expression per tissue for the gene."""
+    ensembl_id = resolve_ensg(gene_symbol)
+    if not ensembl_id:
+        return {"error": f"Could not resolve Ensembl ID for {gene_symbol}"}
 
-    Returns:
-        {
-          "top_tissues":   [{tissue, tpm}],   # 全組織中上位 top_n
-          "key_tissues":   [{tissue, tpm}],   # 安全性関連組織
-          "max_tissue":    str,
-          "max_tpm":       float,
-          "url": str,
-        }
-    """
-    # Ensembl ID → GTEx gene ID 変換 (遺伝子シンボルで検索)
+    # Step 1: versioned gencodeId
     try:
-        r = requests.get(f"{GTEX_API}/reference/gene", params={
-            "geneSymbol": gene_symbol,
-            "gencodeVersion": "v26",
-            "genomeBuild": "GRCh38/hg38",
-        }, timeout=15)
+        r = requests.get(f"{GTEX_API}/reference/gene",
+                         params={"geneId": ensembl_id}, timeout=15)
         r.raise_for_status()
         genes = r.json().get("data", [])
         if not genes:
-            return {"error": f"Gene {gene_symbol} not found in GTEx"}
+            return {"error": f"{gene_symbol} not found in GTEx"}
         versioned_id = genes[0].get("gencodeId", "")
     except Exception as e:
         return {"error": str(e)}
 
-    # 組織別発現取得
+    # Step 2: median expression per tissue
     try:
         r2 = requests.get(f"{GTEX_API}/expression/medianGeneExpression", params={
             "gencodeId": versioned_id,
@@ -63,22 +53,17 @@ def get_tissue_expression(gene_symbol: str, top_n: int = 10) -> dict:
     if not records:
         return {"error": "No expression data"}
 
-    # 全組織ソート
     all_tissues = sorted(
-        [{"tissue": r.get("tissueSiteDetailId", ""), "tpm": r.get("median", 0)} for r in records],
+        [{"tissue": rec.get("tissueSiteDetailId", ""), "tpm": rec.get("median", 0)}
+         for rec in records],
         key=lambda x: x["tpm"], reverse=True,
     )
-
     top_tissues = all_tissues[:top_n]
-
-    # 安全性関連組織の発現
-    tpm_map = {r.get("tissueSiteDetailId", ""): r.get("median", 0) for r in records}
-    key_tissues = [
-        {"tissue": label, "tpm": tpm_map.get(tid, 0)}
-        for tid, label in KEY_TISSUES.items()
-    ]
-    key_tissues.sort(key=lambda x: x["tpm"], reverse=True)
-
+    tpm_map = {rec.get("tissueSiteDetailId", ""): rec.get("median", 0) for rec in records}
+    key_tissues = sorted(
+        [{"tissue": label, "tpm": tpm_map.get(tid, 0)} for tid, label in KEY_TISSUES.items()],
+        key=lambda x: x["tpm"], reverse=True,
+    )
     max_t = top_tissues[0] if top_tissues else {}
 
     return {

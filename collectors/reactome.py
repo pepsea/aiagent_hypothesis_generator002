@@ -57,11 +57,11 @@ def get_pathways(gene_symbol: str, uniprot_id: str = "", top_n: int = 15) -> lis
     if not uid:
         return []
 
-    # Reactome パスウェイ取得
+    # Reactome パスウェイ取得 (mapping endpoint)
     try:
         r = requests.get(
-            f"{REACTOME_API}/data/pathways/low/entity/{uid}/allForms",
-            params={"species": "9606"},
+            f"{REACTOME_API}/data/mapping/UniProt/{uid}/pathways",
+            params={"species": 9606},
             timeout=20,
         )
         if r.status_code == 404:
@@ -74,11 +74,11 @@ def get_pathways(gene_symbol: str, uniprot_id: str = "", top_n: int = 15) -> lis
     results = []
     for p in pathways[:top_n]:
         pid  = p.get("stId", "")
-        name = p.get("displayName", "")
+        name = p.get("displayName", "") or p.get("name", [""])[0] if isinstance(p.get("name"), list) else p.get("name", "")
         results.append({
             "pathway_id": pid,
             "name":       name,
-            "is_disease": "disease" in name.lower() or p.get("isInDisease", False),
+            "is_disease": p.get("isInDisease", False) or "disease" in name.lower(),
             "url":        f"https://reactome.org/PathwayBrowser/#/{pid}",
         })
 

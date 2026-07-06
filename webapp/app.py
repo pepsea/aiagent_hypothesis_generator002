@@ -158,13 +158,18 @@ def _collector_summary(key: str, result, err: str | None) -> str:
             return f"pLI={result.get('pli', 'N/A')}  LOEUF={result.get('loeuf', 'N/A')}"
         return "取得済み"
     if key == "gtex":
-        if isinstance(result, list) and result:
-            top = result[0]
-            return f"最高発現: {top.get('tissue', '')} {top.get('median_tpm', 0):.1f} TPM"
+        if isinstance(result, dict) and "top_tissues" in result:
+            top = result["top_tissues"][0] if result["top_tissues"] else {}
+            return f"最高発現: {top.get('tissue', '')} {top.get('tpm', 0):.1f} TPM"
+        if isinstance(result, dict) and "error" in result:
+            return f"エラー: {result['error'][:60]}"
         return "データなし"
     if key == "hpa":
         if isinstance(result, dict):
-            return f"組織数: {len(result.get('tissue_expression', []))}"
+            n = len(result.get("tissue_expression", []))
+            loc = (result.get("subcellular") or [])
+            loc_str = ", ".join(loc[:2]) if loc else "N/A"
+            return f"組織数: {n} / 局在: {loc_str}"
         return "取得済み"
     if key == "dgidb":
         return f"{len(result)} 相互作用" if isinstance(result, list) else "取得済み"
@@ -200,11 +205,19 @@ def _collector_data(key: str, result) -> dict | None:
                               for d in result.get("known_drugs", [])[:8]],
                     "genetic_variants": result.get("genetic_variants", [])[:5]}
         if key == "uniprot" and isinstance(result, dict):
+            # go_terms can be list of str or list of dict
+            raw_go = result.get("go_terms", [])[:15]
+            go_terms = []
+            for g in raw_go:
+                if isinstance(g, dict):
+                    go_terms.append(g.get("term", g.get("id", "")))
+                else:
+                    go_terms.append(str(g))
             return {"protein_name": result.get("protein_name", ""),
-                    "function": (result.get("function", "") or "")[:400],
-                    "subcellular_location": result.get("subcellular_location", []),
+                    "function": (result.get("function", "") or "")[:500],
+                    "subcellular_location": result.get("subcellular_location", [])[:8],
                     "protein_class": result.get("protein_class", []),
-                    "go_terms": result.get("go_terms", [])[:10]}
+                    "go_terms": go_terms}
         if key == "gwas" and isinstance(result, list):
             return {"hits": [{"trait": h.get("trait", ""), "pvalue": h.get("pvalue", ""),
                                "variant": h.get("variant_id", ""), "beta": h.get("beta", "")}
@@ -220,13 +233,14 @@ def _collector_data(key: str, result) -> dict | None:
                                 "indication": d.get("indication", "")} for d in result[:10]]}
         if key == "gnomad" and isinstance(result, dict):
             return result
-        if key == "gtex" and isinstance(result, list):
-            return {"tissues": [{"tissue": t.get("tissue", ""), "tpm": t.get("median_tpm", 0)}
-                                  for t in result[:10]]}
+        if key == "gtex" and isinstance(result, dict) and "top_tissues" in result:
+            return {"tissues": result.get("top_tissues", [])[:10],
+                    "key_tissues": result.get("key_tissues", [])}
         if key == "hpa" and isinstance(result, dict):
             tissues = result.get("tissue_expression", [])
-            return {"subcellular": result.get("subcellular_location", []),
-                    "tissues": tissues[:10]}
+            return {"subcellular": result.get("subcellular", []),
+                    "protein_tissue": result.get("protein_tissue", []),
+                    "tissues": tissues[:15]}
         if key == "dgidb" and isinstance(result, list):
             return {"interactions": [{"drug": d.get("drug_name", ""),
                                        "type": d.get("interaction_type", "")} for d in result[:10]]}
