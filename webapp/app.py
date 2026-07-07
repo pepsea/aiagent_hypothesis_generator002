@@ -26,7 +26,7 @@ import aggregator
 import report as rpt
 import network as net
 import hypothesis as hyp
-from llm.ollama_client import OllamaClient
+from llm.ollama_client import OllamaClient, OLLAMA_BASE_URL
 from collectors import (
     pubmed, opentargets, uniprot, intact, gwas, chembl,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
@@ -67,7 +67,7 @@ def config():
 @app.route("/api/ollama/status")
 def ollama_status():
     try:
-        r = _requests.get("http://localhost:11434/api/tags", timeout=3)
+        r = _requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
         models = [m["name"] for m in r.json().get("models", [])]
         return jsonify({"available": True, "models": models})
     except Exception:

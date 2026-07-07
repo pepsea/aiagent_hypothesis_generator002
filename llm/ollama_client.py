@@ -5,15 +5,20 @@ Setup:
   2. Pull model: ollama pull llama3.1
   3. Start server: ollama serve  (or it starts automatically)
 """
+import os
 import json
 import requests
 from typing import Optional, Callable
 
+# Ollama 接続先。別サーバー上で動かす場合は環境変数で指定する:
+#   export OLLAMA_HOST=http://<ollama-server-ip>:11434
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+
 
 class OllamaClient:
-    def __init__(self, model: str = "llama3.1", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "llama3.1", base_url: str | None = None):
         self.model = model
-        self.base_url = base_url
+        self.base_url = (base_url or OLLAMA_BASE_URL).rstrip("/")
 
     def generate(
         self,
