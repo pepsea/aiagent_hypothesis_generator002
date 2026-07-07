@@ -20,6 +20,27 @@ from collectors import intact, signor, biogrid, enrichment as enrich_mod
 from collectors import reactome as reactome_mod
 
 
+# 無差別に多数のタンパク質と相互作用する「粘着性ハブ」遺伝子。
+# PPI ネットワークに頻出するがエンリッチメントの特異性を下げるため、
+# 機能解析の入力からは除外する（ネットワーク図には残す）。
+HUB_GENES = {
+    # ユビキチン / プロテアソーム
+    "UBC", "UBB", "UBA52", "RPS27A", "SUMO1", "SUMO2", "NEDD8",
+    # 細胞骨格
+    "ACTB", "ACTG1", "TUBB", "TUBA1A", "TUBA1B", "TUBB4B", "VIM",
+    # シャペロン / ハウスキーピング
+    "GAPDH", "HSP90AA1", "HSP90AB1", "HSPA8", "HSPA4", "HSPA5",
+    "EEF1A1", "EEF2", "ENO1", "PKM",
+    # 14-3-3
+    "YWHAZ", "YWHAE", "YWHAB", "YWHAG", "YWHAH", "YWHAQ",
+    # G タンパク質サブユニット（無差別シグナル媒介）
+    "GNB1", "GNB2", "GNB2L1", "RACK1", "GNAI1", "GNAI2", "GNAI3",
+    "GNAQ", "GNAS", "GNA11", "GNA13", "GNB3", "GNB4", "GNG2",
+    # その他の常連ハブ
+    "APP", "ELAVL1", "CUL1", "CUL3", "XPO1", "TRIM28", "MYC",
+}
+
+
 # ──────────────────────────────────────────────────────────────
 # 1. ネットワーク構築
 # ──────────────────────────────────────────────────────────────
@@ -194,8 +215,11 @@ def rank_partners(G: "nx.Graph", center: str) -> list[str]:
 def run_network_enrichment(
     G: "nx.Graph",
     top_n: int = 30,
+    exclude_hubs: bool = True,
 ) -> dict:
     """ネットワーク内全遺伝子を g:Profiler でエンリッチメント解析する。
+
+    exclude_hubs: True の場合、粘着性ハブ遺伝子（HUB_GENES）を機能解析から除外。
 
     Returns:
         {
@@ -214,6 +238,15 @@ def run_network_enrichment(
     excluded = [n for n in G.nodes if n and G.nodes[n].get("entity_type", "gene") != "gene"]
     if excluded:
         print(f"  エンリッチメント除外（非遺伝子）: {', '.join(excluded)}")
+
+    # 粘着性ハブ遺伝子を除外（中心遺伝子自身は必ず残す）
+    if exclude_hubs:
+        center = next((n for n in G.nodes if G.nodes[n].get("db") == "center"), None)
+        hubs = [g for g in gene_list if g.upper() in HUB_GENES and g != center]
+        if hubs:
+            print(f"  エンリッチメント除外（ハブ遺伝子）: {', '.join(hubs)}")
+            gene_list = [g for g in gene_list if g not in hubs]
+
     print(f"  エンリッチメント対象: {len(gene_list)} 遺伝子")
 
     results = enrich_mod.run_enrichment(gene_list, top_n=top_n)

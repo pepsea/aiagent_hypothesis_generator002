@@ -7,6 +7,7 @@ Usage:
 
 Requires Ollama running: ollama serve
 """
+import os
 import sys
 import json
 import time
@@ -16,6 +17,9 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# BIOGRID_API_KEY が設定されていれば BioGRID を PPI に含める（非商用ライセンス）
+USE_BIOGRID = bool(os.environ.get("BIOGRID_API_KEY"))
 
 from flask import Flask, render_template, request, jsonify, Response, send_from_directory
 import requests as _requests
@@ -403,7 +407,7 @@ def analyze():
             send("progress", gene=gene, step="ppi", message="PPIネットワーク構築中...")
             ppi_graph, enrichment = None, {}
             try:
-                ppi_graph = net.build_ppi_network(gene, use_biogrid=False, use_reactome=True)
+                ppi_graph = net.build_ppi_network(gene, use_biogrid=USE_BIOGRID, use_reactome=True)
                 enrichment = net.run_network_enrichment(ppi_graph) if ppi_graph else {}
                 if ppi_graph:
                     send("ppi_done", gene=gene,
@@ -506,7 +510,6 @@ def index():
 
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     print("=" * 55)
     print(f"  Drug Hypothesis Generation Web App")

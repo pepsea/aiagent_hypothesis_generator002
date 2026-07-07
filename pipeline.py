@@ -10,9 +10,13 @@
 """
 from __future__ import annotations
 
+import os
 import json
 from datetime import datetime
 from pathlib import Path
+
+# BIOGRID_API_KEY が設定されていれば BioGRID を PPI に含める（非商用ライセンス）
+_USE_BIOGRID = bool(os.environ.get("BIOGRID_API_KEY"))
 
 import aggregator
 import network as net
@@ -107,7 +111,7 @@ def _build_network(gene: str, log):
     """PPI ネットワークとエンリッチメントを構築する（失敗しても None を返す）。"""
     log("  PPIネットワーク構築中...")
     try:
-        graph = net.build_ppi_network(gene, use_biogrid=False, use_reactome=True)
+        graph = net.build_ppi_network(gene, use_biogrid=_USE_BIOGRID, use_reactome=True)
         enrichment = net.run_network_enrichment(graph) if graph else {}
         if graph:
             log(f"  ✓ PPI: {graph.number_of_nodes()} nodes / {graph.number_of_edges()} edges")
