@@ -488,14 +488,14 @@ def analyze():
                     send("ppi_done", gene=gene,
                          nodes=ppi_graph.number_of_nodes(),
                          edges=ppi_graph.number_of_edges(),
-                         partners=net.rank_partners(ppi_graph, gene.upper())[:max_nodes])
+                         partners=net.rank_partners(ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes])
             except Exception as e:
                 send("progress", gene=gene, step="ppi", message=f"PPI警告: {e}")
 
             # ── 3. UniProt 機能情報（対象遺伝子 + PPI パートナー） ───────────────
             all_functions = {}
             if ppi_graph:
-                ppi_partners = net.rank_partners(ppi_graph, gene.upper())[:max_nodes]
+                ppi_partners = net.rank_partners(ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes]
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
                 try:
@@ -567,7 +567,7 @@ def analyze():
             ppi_section, ppi_image_rel, partners = "", "", []
             if ppi_graph and ppi_graph.number_of_edges() > 0:
                 img_name = f"{ts}_ppi.png"
-                partners = net.rank_partners(ppi_graph, gene.upper())[:max_nodes]
+                partners = net.rank_partners(ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes]
                 if net.render_ppi_image(ppi_graph, gene, str(pair_dir / img_name),
                                         enrichment=enrichment, max_nodes=max_nodes):
                     ppi_section = rpt.ppi_md(gene, img_name, partners=partners,

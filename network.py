@@ -272,13 +272,24 @@ def _n_distinct_dbs(edge: dict) -> int:
     return len(dbs)
 
 
-def rank_partners(G: "nx.Graph", center: str) -> list[str]:
+def rank_partners(
+    G: "nx.Graph",
+    center: str,
+    exclude_hubs: bool = True,
+    hub_threshold: int | None = None,
+) -> list[str]:
     """PPIパートナーを優先度順に並べて返す。
 
     優先順位（降順）:
       1. 複数DBで共通する遺伝子（裏付けDB数が多いほど上位）
       2. スコアが高いもの（IntAct intactScore / SIGNOR score など）
       3. エッジの重み（観測された相互作用の回数）
+
+    exclude_hubs: True の場合、ハブ遺伝子（既知の非特異ハブ族、または
+        グローバル相互作用数が hub_threshold 超）をリストから除外する。
+        仮説生成用コンテキスト（LLM・UniProt機能リスト・MDレポート）に
+        非特異的なハブが紛れ込むのを防ぐ。エンリッチメント解析の
+        除外基準（run_network_enrichment）と同じ判定を用いる。
     """
     def key(n):
         ed = G.edges[center, n]
@@ -288,7 +299,27 @@ def rank_partners(G: "nx.Graph", center: str) -> list[str]:
         weight = ed.get("weight", 1)
         return (n_db, score, weight)
 
-    return sorted(G.neighbors(center), key=key, reverse=True)
+    ranked = sorted(G.neighbors(center), key=key, reverse=True)
+
+    if not exclude_hubs:
+        return ranked
+
+    threshold = hub_threshold if hub_threshold is not None else HUB_DEGREE_THRESHOLD
+    candidates = [n for n in ranked if n != center]
+    non_gene = {n for n in candidates
+                if G.nodes[n].get("entity_type", "gene") != "gene"}
+    family_hubs = {n for n in candidates if is_hub_family(n)}
+
+    # 残った候補（族に該当しない・非遺伝子でない）だけ次数を問い合わせる
+    to_check = [n for n in candidates if n not in family_hubs and n not in non_gene]
+    degree_hubs = set()
+    if to_check:
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            counts = dict(zip(to_check, ex.map(global_interactor_count, to_check)))
+        degree_hubs = {n for n, c in counts.items() if c > threshold}
+
+    excluded = non_gene | family_hubs | degree_hubs
+    return [n for n in ranked if n not in excluded]
 
 
 # ──────────────────────────────────────────────────────────────
