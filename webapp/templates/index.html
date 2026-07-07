@@ -657,9 +657,10 @@ function finalizeGene(gene, ev) {
     if (el) el.innerHTML = `
       <img src="${imgUrl}" class="ppi-image" alt="PPI network">
       <p style="margin-top:8px;font-size:12px;color:var(--text-sub);">
-        ★ = ${gene} (target) ／ 色 = データソース（IntAct/SIGNOR/Reactome）
+        ★ = ${gene} (target) ／ 色 = データソース（SIGNOR / BioGRID）
       </p>
-      ${partnerHtml}`;
+      ${partnerHtml}
+      ${renderPartnerFunctions(ev.partner_functions)}`;
   }
   // Enrichment
   if (ev.enrichment_results && ev.enrichment_results.length) {
@@ -747,7 +748,8 @@ function renderEnrichment(results) {
 // ── Collector grid ─────────────────────────────────────────────────────────
 const SRC_LABEL = {
   pubmed:"PubMed", opentargets:"OpenTargets", uniprot:"UniProt",
-  intact:"IntAct", gwas:"GWAS", clinvar:"ClinVar", chembl:"ChEMBL",
+  signor:"SIGNOR", biogrid:"BioGRID", intact:"IntAct",
+  gwas:"GWAS", clinvar:"ClinVar", chembl:"ChEMBL",
   gnomad:"gnomAD", gtex:"GTEx", hpa:"HPA", dgidb:"DGIdb",
   clinicaltrials:"臨床試験", alphafold:"AlphaFold", reactome:"Reactome",
   toxicity:"毒性",
@@ -939,6 +941,19 @@ function renderDataDetail(source, data) {
         ? `<table class="data-table"><thead><tr><th>パートナー</th><th>タイプ</th><th>検出法</th><th>MI score</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
+    if ((source === "signor" || source === "biogrid") && data && data.interactions) {
+      const rows = data.interactions.map(d => `<tr>
+        <td style="font-family:monospace;font-weight:600;">${esc(d.partner)}</td>
+        <td>${esc(d.effect||"")}</td>
+        <td style="font-size:11px;">${esc(d.mechanism||"")}</td>
+        <td style="text-align:center;">${esc(d.direction||"")}</td>
+        <td class="pval">${d.score != null ? (+d.score).toFixed(3) : "—"}</td>
+        <td>${d.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(d.pmid)}" target="_blank">${esc(d.pmid)}</a>` : "—"}</td>
+      </tr>`).join("");
+      return rows
+        ? `<table class="data-table"><thead><tr><th>パートナー</th><th>効果</th><th>機序</th><th>方向</th><th>score</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<span style="color:var(--text-sub)">インタラクションなし</span>';
+    }
     if (source === "dgidb" && data && data.interactions) {
       const rows = data.interactions.map(d=>`<tr><td style="font-family:monospace;">${esc(d.drug)}</td>
         <td>${esc(d.type)}</td></tr>`).join("");
@@ -961,6 +976,22 @@ function renderDataDetail(source, data) {
     }
   } catch(e) {}
   return `<pre style="font-size:11px;overflow:auto;">${esc(JSON.stringify(data,null,2))}</pre>`;
+}
+
+function renderPartnerFunctions(funcs) {
+  if (!funcs || !funcs.length) return "";
+  const rows = funcs.map(f => `
+    <div style="margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;
+                ${f.is_target ? 'background:#eff6ff;border-color:#bfdbfe;' : ''}">
+      <div style="font-weight:600;font-size:13px;font-family:monospace;">
+        ${esc(f.gene)}${f.is_target ? ' <span class="badge">target</span>' : ''}
+        <span style="font-weight:400;font-family:inherit;color:var(--text-sub);">${esc(f.protein_name||"")}</span>
+      </div>
+      <div class="abstract-text" style="margin-top:3px;">${esc(f.function||"")}</div>
+    </div>`).join("");
+  return `<div class="data-section-title" style="margin-top:16px;">
+            タンパク質機能 (UniProt) — 対象遺伝子 + PPI遺伝子 ${funcs.length}件
+          </div>${rows}`;
 }
 
 function renderExcludedHubs(hubs) {

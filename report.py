@@ -57,15 +57,20 @@ def enrichment_md(enrichment: dict, top_per_source: int = 5) -> str:
     return "\n".join(lines)
 
 
-def ppi_md(gene: str, image_filename: str, partners: list[str] | None = None) -> str:
-    """PPI ネットワーク画像 + パートナー遺伝子リストを埋め込む Markdown セクション。"""
+def ppi_md(gene: str, image_filename: str, partners: list[str] | None = None,
+           functions: dict | None = None) -> str:
+    """PPI ネットワーク画像 + パートナー遺伝子リスト + 機能情報の Markdown セクション。
+
+    functions: {GENE(upper): {"protein_name","function"}} を渡すと、
+        対象遺伝子および PPI パートナーの UniProt 機能説明をリスト表示する。
+    """
     lines = [
         "## PPI Network",
         "",
         f"![PPI network of {gene}]({image_filename})",
         "",
         f"<sub><sup>★ = {gene} (target, 上部) ／ 下部 = PPI パートナー。"
-        f"色 = データソース（IntAct / SIGNOR / Reactome、複数DB共通は強調色）"
+        f"色 = データソース（SIGNOR / BioGRID、複数DB共通は強調色）"
         f"</sup></sub>",
         "",
     ]
@@ -75,6 +80,26 @@ def ppi_md(gene: str, image_filename: str, partners: list[str] | None = None) ->
             + ", ".join(f"`{p}`" for p in partners),
             "",
         ]
+
+    # 対象遺伝子・PPI 遺伝子の機能情報（UniProt）
+    if functions:
+        lines += ["### タンパク質機能 (UniProt)", ""]
+        order = [gene.upper()] + [p for p in (partners or []) if p.upper() != gene.upper()]
+        seen = set()
+        for g in order:
+            info = functions.get(g.upper())
+            if not info or g.upper() in seen:
+                continue
+            seen.add(g.upper())
+            func = (info.get("function") or "").strip()
+            if not func:
+                continue
+            pname = info.get("protein_name", "")
+            label = f"{g}" + (f" — {pname}" if pname else "")
+            tag = " **(target)**" if g.upper() == gene.upper() else ""
+            lines.append(f"- **{label}**{tag}: {func}")
+        lines.append("")
+
     return "\n".join(lines)
 
 

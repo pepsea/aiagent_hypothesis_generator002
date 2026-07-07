@@ -34,7 +34,7 @@ from llm.ollama_client import OllamaClient, OLLAMA_BASE_URL
 from collectors import (
     pubmed, opentargets, uniprot, intact, gwas, chembl,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
-    reactome, toxicity,
+    reactome, toxicity, signor, biogrid,
 )
 
 app = Flask(__name__)
@@ -129,7 +129,8 @@ def validate_genes():
 # ─── Collector helpers ────────────────────────────────────────────────────
 _SRC_LABEL = {
     "pubmed": "PubMed", "opentargets": "OpenTargets", "uniprot": "UniProt",
-    "intact": "IntAct", "gwas": "GWAS", "clinvar": "ClinVar",
+    "signor": "SIGNOR", "biogrid": "BioGRID", "intact": "IntAct",
+    "gwas": "GWAS", "clinvar": "ClinVar",
     "chembl": "ChEMBL", "gnomad": "gnomAD", "gtex": "GTEx",
     "hpa": "HPA", "dgidb": "DGIdb", "clinicaltrials": "ClinicalTrials",
     "alphafold": "AlphaFold", "reactome": "Reactome", "toxicity": "Toxicity",
@@ -157,6 +158,11 @@ def _collector_summary(key: str, result, err: str | None) -> str:
     if key == "intact":
         if isinstance(result, list):
             partners = list({p for ix in result for p in (ix.get("partners") or [])})
+            return f"{len(result)} interactions / {len(partners)} partners"
+        return "取得済み"
+    if key in ("signor", "biogrid"):
+        if isinstance(result, list):
+            partners = {ix.get("partner") for ix in result if ix.get("partner")}
             return f"{len(result)} interactions / {len(partners)} partners"
         return "取得済み"
     if key == "gwas":
@@ -257,6 +263,14 @@ def _collector_data(key: str, result) -> dict | None:
                                  "score": ix.get("confidence"),
                                  "pmid": (ix.get("pubmed_ids") or [""])[0]})
             return {"interactions": rows}
+        if key in ("signor", "biogrid") and isinstance(result, list):
+            rows = [{"partner": ix.get("partner", ""),
+                     "effect": ix.get("effect", ""),
+                     "mechanism": ix.get("mechanism", ""),
+                     "direction": ix.get("direction", ""),
+                     "score": ix.get("score"),
+                     "pmid": ix.get("pmid", "")} for ix in result[:30]]
+            return {"interactions": rows}
         if key == "gwas" and isinstance(result, list):
             return {"hits": [{"trait": h.get("trait", ""),
                                "pvalue": h.get("p_value", ""),
@@ -348,7 +362,8 @@ def analyze():
                 "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=8, disease_efo_id=disease_id),
                 "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
                 "uniprot":        lambda: uniprot.get_protein_info(gene),
-                "intact":         lambda: intact.get_interactions(gene, max_results=15),
+                "signor":         lambda: signor.get_interactions(gene),
+                "biogrid":        lambda: biogrid.get_interactions(gene) if USE_BIOGRID else [],
                 "gwas":           lambda: gwas.get_gwas_associations(gene, disease_name),
                 "clinvar":        lambda: gwas.get_clinvar_variants(gene),
                 "chembl":         lambda: chembl.get_drugs_for_target(gene),
@@ -407,7 +422,8 @@ def analyze():
             send("progress", gene=gene, step="ppi", message="PPIネットワーク構築中...")
             ppi_graph, enrichment = None, {}
             try:
-                ppi_graph = net.build_ppi_network(gene, use_biogrid=USE_BIOGRID, use_reactome=True)
+                ppi_graph = net.build_ppi_network(gene, use_biogrid=USE_BIOGRID,
+                                                  use_reactome=False, use_intact=False)
                 enrichment = net.run_network_enrichment(ppi_graph) if ppi_graph else {}
                 if ppi_graph:
                     send("ppi_done", gene=gene,
@@ -417,20 +433,29 @@ def analyze():
             except Exception as e:
                 send("progress", gene=gene, step="ppi", message=f"PPI警告: {e}")
 
-            # ── 3. LLM context ────────────────────────────────────────────────
+            # ── 3. UniProt 機能情報（対象遺伝子 + PPI パートナー） ───────────────
+            all_functions = {}
+            if ppi_graph:
+                ppi_partners = net.rank_partners(ppi_graph, gene.upper())[:30]
+                send("progress", gene=gene, step="ppi",
+                     message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
+                try:
+                    all_functions = uniprot.get_functions_for_genes([gene] + ppi_partners)
+                except Exception:
+                    all_functions = {}
+                # 対象遺伝子の機能は uniprot コレクター結果からも補完
+                u = results.get("uniprot")
+                if isinstance(u, dict) and gene.upper() not in all_functions:
+                    all_functions[gene.upper()] = {
+                        "protein_name": u.get("protein_name", ""),
+                        "function": u.get("function", ""),
+                    }
+
+            # ── 4. LLM context ────────────────────────────────────────────────
             context = aggregator.build_llm_context(evidence, config=None)
             if ppi_graph:
-                partners_for_fn = net.rank_partners(ppi_graph, gene.upper())[:10]
-                partner_fns = {}
-                if partners_for_fn:
-                    send("progress", gene=gene, step="ppi",
-                         message="PPIパートナーのUniProt機能情報を取得中...")
-                    try:
-                        partner_fns = uniprot.get_functions_for_genes(partners_for_fn)
-                    except Exception:
-                        partner_fns = {}
                 context += "\n\n" + net.network_summary_for_llm(
-                    ppi_graph, gene, enrichment, partner_functions=partner_fns)
+                    ppi_graph, gene, enrichment, partner_functions=all_functions)
 
             # ── 4. Hypothesis streaming ───────────────────────────────────────
             send("progress", gene=gene, step="llm", message="仮説生成中...")
@@ -461,7 +486,8 @@ def analyze():
                 partners = net.rank_partners(ppi_graph, gene.upper())[:30]
                 if net.render_ppi_image(ppi_graph, gene, str(pair_dir / img_name),
                                         enrichment=enrichment, max_nodes=30):
-                    ppi_section = rpt.ppi_md(gene, img_name, partners=partners)
+                    ppi_section = rpt.ppi_md(gene, img_name, partners=partners,
+                                             functions=all_functions)
                     ppi_image_rel = str(pair_dir / img_name)
 
             md = rpt.build_report(
@@ -476,9 +502,26 @@ def analyze():
             (pair_dir / f"{ts}_raw.json").write_text(
                 json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
+            # 機能情報を {gene, protein_name, function} のリストに整形（対象を先頭）
+            func_order = [gene.upper()] + [p for p in partners if p.upper() != gene.upper()]
+            partner_functions = []
+            _seen = set()
+            for g in func_order:
+                info = all_functions.get(g.upper())
+                if not info or g.upper() in _seen or not info.get("function"):
+                    continue
+                _seen.add(g.upper())
+                partner_functions.append({
+                    "gene": g,
+                    "protein_name": info.get("protein_name", ""),
+                    "function": info.get("function", ""),
+                    "is_target": g.upper() == gene.upper(),
+                })
+
             send("gene_done", gene=gene, path=str(rpt_path),
                  hypothesis=hypothesis,
                  ppi_image=ppi_image_rel, partners=partners,
+                 partner_functions=partner_functions,
                  enrichment_results=(enrichment or {}).get("results", [])[:100],
                  excluded_hubs=(enrichment or {}).get("excluded_hubs", []))
 

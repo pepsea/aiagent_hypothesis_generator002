@@ -76,15 +76,16 @@ def global_interactor_count(gene_symbol: str) -> int:
 
 def build_ppi_network(
     gene_symbol: str,
-    use_biogrid: bool = False,
+    use_biogrid: bool = True,
     biogrid_api_key: str | None = None,
-    use_reactome: bool = True,
+    use_reactome: bool = False,
+    use_intact: bool = False,
 ) -> Optional["nx.Graph"]:
-    """IntAct + SIGNOR + Reactome の相互作用から NetworkX グラフを構築する。
+    """SIGNOR + BioGRID（既定）の相互作用から NetworkX グラフを構築する。
 
-    すべて CC BY 4.0（商用利用可）のデータソースを使用。
-    BioGRID は非商用・学術利用限定ライセンスのためデフォルト無効
-    （明示的に use_biogrid=True とした場合のみ使用）。
+    既定では SIGNOR（CC BY 4.0）と BioGRID を使用。
+    IntAct・Reactome はオプション（use_intact / use_reactome）。
+    BioGRID は非商用・学術利用限定ライセンス（BIOGRID_API_KEY が必要）。
 
     Returns:
         nx.Graph: ノード属性に db, color, direct_partner を持つグラフ
@@ -159,14 +160,15 @@ def build_ppi_network(
                                dbs={source_label},
                                score=score)
 
-    # --- IntAct ---
-    try:
-        print("  IntAct 取得中...")
-        ia_data = intact.get_interactions(gene_symbol)
-        add_edges(ia_data, "IntAct")
-        print(f"  IntAct: {len(ia_data)} 件")
-    except Exception as e:
-        print(f"  [IntAct] エラー: {e}")
+    # --- IntAct（任意） ---
+    if use_intact:
+        try:
+            print("  IntAct 取得中...")
+            ia_data = intact.get_interactions(gene_symbol)
+            add_edges(ia_data, "IntAct")
+            print(f"  IntAct: {len(ia_data)} 件")
+        except Exception as e:
+            print(f"  [IntAct] エラー: {e}")
 
     # --- SIGNOR ---
     try:

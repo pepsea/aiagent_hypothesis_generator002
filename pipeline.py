@@ -111,7 +111,8 @@ def _build_network(gene: str, log):
     """PPI ネットワークとエンリッチメントを構築する（失敗しても None を返す）。"""
     log("  PPIネットワーク構築中...")
     try:
-        graph = net.build_ppi_network(gene, use_biogrid=_USE_BIOGRID, use_reactome=True)
+        graph = net.build_ppi_network(gene, use_biogrid=_USE_BIOGRID,
+                                      use_reactome=False, use_intact=False)
         enrichment = net.run_network_enrichment(graph) if graph else {}
         if graph:
             log(f"  ✓ PPI: {graph.number_of_nodes()} nodes / {graph.number_of_edges()} edges")
