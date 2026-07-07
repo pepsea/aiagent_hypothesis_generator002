@@ -479,7 +479,8 @@ def analyze():
             send("gene_done", gene=gene, path=str(rpt_path),
                  hypothesis=hypothesis,
                  ppi_image=ppi_image_rel, partners=partners,
-                 enrichment_results=(enrichment or {}).get("results", [])[:100])
+                 enrichment_results=(enrichment or {}).get("results", [])[:100],
+                 excluded_hubs=(enrichment or {}).get("excluded_hubs", []))
 
         send("batch_done", total=len(genes))
         q.put(None)  # sentinel

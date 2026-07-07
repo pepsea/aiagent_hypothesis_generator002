@@ -8,6 +8,11 @@
 from __future__ import annotations
 
 import os
+import json
+import time
+import requests
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 try:
@@ -19,26 +24,50 @@ except ImportError:
 from collectors import intact, signor, biogrid, enrichment as enrich_mod
 from collectors import reactome as reactome_mod
 
+# ── ハブ遺伝子の客観的判定 ────────────────────────────────────────────────
+# 「ハブ」を恣意的なリストではなく、公開DB(IntAct)で測定した
+# グローバル相互作用数（total interactor count）で定義する。
+# 相互作用数がこの閾値を超える遺伝子は、無差別に多数のタンパク質と
+# 相互作用する非特異的ハブとみなし、エンリッチメント入力から除外する。
+HUB_DEGREE_THRESHOLD = int(os.environ.get("HUB_DEGREE_THRESHOLD", "3000"))
 
-# 無差別に多数のタンパク質と相互作用する「粘着性ハブ」遺伝子。
-# PPI ネットワークに頻出するがエンリッチメントの特異性を下げるため、
-# 機能解析の入力からは除外する（ネットワーク図には残す）。
-HUB_GENES = {
-    # ユビキチン / プロテアソーム
-    "UBC", "UBB", "UBA52", "RPS27A", "SUMO1", "SUMO2", "NEDD8",
-    # 細胞骨格
-    "ACTB", "ACTG1", "TUBB", "TUBA1A", "TUBA1B", "TUBB4B", "VIM",
-    # シャペロン / ハウスキーピング
-    "GAPDH", "HSP90AA1", "HSP90AB1", "HSPA8", "HSPA4", "HSPA5",
-    "EEF1A1", "EEF2", "ENO1", "PKM",
-    # 14-3-3
-    "YWHAZ", "YWHAE", "YWHAB", "YWHAG", "YWHAH", "YWHAQ",
-    # G タンパク質サブユニット（無差別シグナル媒介）
-    "GNB1", "GNB2", "GNB2L1", "RACK1", "GNAI1", "GNAI2", "GNAI3",
-    "GNAQ", "GNAS", "GNA11", "GNA13", "GNB3", "GNB4", "GNG2",
-    # その他の常連ハブ
-    "APP", "ELAVL1", "CUL1", "CUL3", "XPO1", "TRIM28", "MYC",
-}
+_HUB_CACHE_DIR = Path(__file__).parent / "ppi_cache" / "hub_degree"
+_HUB_CACHE_TTL = 30 * 24 * 3600   # 30日（相互作用数は頻繁には変わらない）
+_hub_mem_cache: dict[str, int] = {}
+
+
+def global_interactor_count(gene_symbol: str) -> int:
+    """IntAct における遺伝子のグローバル相互作用数を返す（客観的なハブ指標）。
+
+    取得失敗時は -1 を返す（除外判定に使わない）。結果はメモリ+ファイルにキャッシュ。
+    """
+    key = gene_symbol.upper()
+    if key in _hub_mem_cache:
+        return _hub_mem_cache[key]
+
+    cache_file = _HUB_CACHE_DIR / f"{key}.json"
+    if cache_file.exists() and time.time() - cache_file.stat().st_mtime < _HUB_CACHE_TTL:
+        try:
+            n = json.loads(cache_file.read_text())["count"]
+            _hub_mem_cache[key] = n
+            return n
+        except Exception:
+            pass
+
+    try:
+        r = requests.get(
+            f"https://www.ebi.ac.uk/intact/ws/interaction/findInteractions/{gene_symbol}",
+            params={"page": 0, "pageSize": 1, "query": "species:9606"}, timeout=15)
+        r.raise_for_status()
+        n = int(r.json().get("totalElements", -1))
+    except Exception:
+        n = -1
+
+    if n >= 0:
+        _HUB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps({"count": n}), encoding="utf-8")
+    _hub_mem_cache[key] = n
+    return n
 
 
 # ──────────────────────────────────────────────────────────────
@@ -216,20 +245,27 @@ def run_network_enrichment(
     G: "nx.Graph",
     top_n: int = 30,
     exclude_hubs: bool = True,
+    hub_threshold: int | None = None,
 ) -> dict:
     """ネットワーク内全遺伝子を g:Profiler でエンリッチメント解析する。
 
-    exclude_hubs: True の場合、粘着性ハブ遺伝子（HUB_GENES）を機能解析から除外。
+    exclude_hubs: True の場合、ハブ遺伝子を機能解析から除外。
+        ハブ判定は IntAct のグローバル相互作用数が hub_threshold を超えるか、
+        で客観的に行う（恣意的なリストではなく実測値ベース）。
+    hub_threshold: 相互作用数の閾値（None なら HUB_DEGREE_THRESHOLD）。
 
     Returns:
         {
-          "gene_list": [...],
-          "results":   [enrichment dicts],
-          "by_source": {source: [top terms]}
+          "gene_list":     [...],
+          "results":       [enrichment dicts],
+          "by_source":     {source: [top terms]},
+          "excluded_hubs": [{"gene", "interactor_count"}],
         }
     """
     if G is None:
         return {}
+
+    threshold = hub_threshold if hub_threshold is not None else HUB_DEGREE_THRESHOLD
 
     # 遺伝子/タンパク質ノードのみを対象にする（化合物・phenotype 等を除外）
     # entity_type が無い中心ノード等は gene とみなす
@@ -239,12 +275,20 @@ def run_network_enrichment(
     if excluded:
         print(f"  エンリッチメント除外（非遺伝子）: {', '.join(excluded)}")
 
-    # 粘着性ハブ遺伝子を除外（中心遺伝子自身は必ず残す）
-    if exclude_hubs:
+    # ハブ遺伝子を「グローバル相互作用数」で客観的に除外（中心遺伝子は必ず残す）
+    excluded_hubs = []
+    if exclude_hubs and gene_list:
         center = next((n for n in G.nodes if G.nodes[n].get("db") == "center"), None)
-        hubs = [g for g in gene_list if g.upper() in HUB_GENES and g != center]
+        candidates = [g for g in gene_list if g != center]
+        # 各遺伝子の相互作用数を並列取得
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            counts = dict(zip(candidates, ex.map(global_interactor_count, candidates)))
+        hubs = {g for g, c in counts.items() if c > threshold}   # c<0（取得失敗）は除外しない
         if hubs:
-            print(f"  エンリッチメント除外（ハブ遺伝子）: {', '.join(hubs)}")
+            excluded_hubs = [{"gene": g, "interactor_count": counts[g]}
+                             for g in sorted(hubs, key=lambda x: counts[x], reverse=True)]
+            desc = ", ".join(f"{h['gene']}({h['interactor_count']})" for h in excluded_hubs)
+            print(f"  エンリッチメント除外（ハブ: 相互作用数>{threshold}）: {desc}")
             gene_list = [g for g in gene_list if g not in hubs]
 
     print(f"  エンリッチメント対象: {len(gene_list)} 遺伝子")
@@ -254,9 +298,10 @@ def run_network_enrichment(
 
     print(f"  エンリッチメント: {len(results)} 有意項目 (FDR<0.05)")
     return {
-        "gene_list": gene_list,
-        "results":   results,
-        "by_source": by_source,
+        "gene_list":     gene_list,
+        "results":       results,
+        "by_source":     by_source,
+        "excluded_hubs": excluded_hubs,
     }
 
 

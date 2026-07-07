@@ -664,7 +664,8 @@ function finalizeGene(gene, ev) {
   // Enrichment
   if (ev.enrichment_results && ev.enrichment_results.length) {
     const el = document.getElementById(id + "-enr-content");
-    if (el) el.innerHTML = renderEnrichment(ev.enrichment_results);
+    if (el) el.innerHTML = renderEnrichment(ev.enrichment_results)
+                         + renderExcludedHubs(ev.excluded_hubs);
   }
   // Download
   if (ev.path) {
@@ -960,6 +961,22 @@ function renderDataDetail(source, data) {
     }
   } catch(e) {}
   return `<pre style="font-size:11px;overflow:auto;">${esc(JSON.stringify(data,null,2))}</pre>`;
+}
+
+function renderExcludedHubs(hubs) {
+  if (!hubs || !hubs.length) return "";
+  const tags = hubs.map(h =>
+    `<span style="display:inline-block;background:#fef2f2;border:1px solid #fecaca;
+                  border-radius:4px;padding:1px 7px;margin:2px;font-size:11px;font-family:monospace;">
+       ${esc(h.gene)} <span style="color:var(--text-sub)">(${h.interactor_count})</span>
+     </span>`).join("");
+  return `<div class="data-section-title" style="margin-top:16px;">
+            エンリッチメントから除外したハブ遺伝子
+            <span style="font-size:11px;font-weight:400;color:var(--text-sub);margin-left:6px;">
+              IntAct 相互作用数が閾値を超え、機能解析の特異性を下げるため除外（括弧内=相互作用数）
+            </span>
+          </div>
+          <div>${tags}</div>`;
 }
 
 function esc(s) {
