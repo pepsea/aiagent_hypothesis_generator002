@@ -1050,7 +1050,7 @@ function renderDataDetail(source, data) {
         <td style="vertical-align:top;">${esc(d.effect||"")}</td>
         <td style="font-size:11px;vertical-align:top;">${esc(d.mechanism||"")}</td>
         <td style="text-align:center;vertical-align:top;">${esc(d.direction||"")}</td>
-        <td class="pval" style="vertical-align:top;">${d.score != null ? (+d.score).toFixed(3) : "—"}</td>
+        <td class="pval" style="vertical-align:top;">${d.score != null ? (+d.score).toFixed(3) : "—"}${d.score_inferred ? '<br><span style="font-size:10px;color:var(--text-sub);font-weight:400;" title="スコア未提供のため、パートナーの接続数の逆数を代用">(推定)</span>' : ''}</td>
         <td style="font-size:11px;color:var(--text-sub);max-width:260px;" title="${esc(func)}">${proteinLink}${esc(funcShort)}</td>
       </tr>`;
       }).join("");

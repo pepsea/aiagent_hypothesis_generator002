@@ -292,6 +292,7 @@ def _collector_data(key: str, result) -> dict | None:
                      "mechanism": ix.get("mechanism", ""),
                      "direction": ix.get("direction", ""),
                      "score": ix.get("score"),
+                     "score_inferred": bool(ix.get("score_inferred")),
                      "function": ix.get("partner_function", ""),
                      "protein_name": ix.get("partner_protein_name", ""),
                      "accession": ix.get("partner_accession", "")} for ix in result[:30]]
@@ -543,6 +544,15 @@ def analyze():
                 # PPI ソース（SIGNOR/STRING/BioGRID）の取得データ表示に
                 # 各パートナーの UniProt 機能を付与し、collector_done を再送信して
                 # 取得データタブの表示を更新する
+                # PPI ネットワーク構築時にスコアが無いエッジへ設定した代用スコア
+                # （パートナーの接続数の逆数）を、対応する取得データにも反映する
+                inferred_scores = {}
+                center_upper = gene.upper()
+                for node in ppi_graph.neighbors(center_upper):
+                    ed = ppi_graph.edges[center_upper, node]
+                    if ed.get("score_inferred"):
+                        inferred_scores[node.upper()] = ed.get("score")
+
                 for src in ("signor", "string", "biogrid"):
                     raw = results.get(src)
                     if not isinstance(raw, list) or not raw:
@@ -554,6 +564,9 @@ def analyze():
                             ix["partner_function"] = info.get("function", "")
                             ix["partner_protein_name"] = info.get("protein_name", "")
                             ix["partner_accession"] = info.get("accession", "")
+                        if ix.get("score") is None and p in inferred_scores:
+                            ix["score"] = inferred_scores[p]
+                            ix["score_inferred"] = True
                     send("collector_done", gene=gene, source=src, ok=True,
                          summary=_collector_summary(src, raw, None),
                          data=_collector_data(src, raw))

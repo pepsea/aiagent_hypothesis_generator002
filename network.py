@@ -238,6 +238,29 @@ def build_ppi_network(
         except Exception as e:
             print(f"  [Reactome] エラー: {e}")
 
+    # --- スコアが無いエッジへのフォールバック ---
+    # PPI データベースによってはエッジにスコア（信頼度）を提供しない場合がある
+    # （例: BioGRID の SCORE は多くのレコードで空）。この場合、パートナー遺伝子の
+    # グローバル接続数（IntAct 実測の総相互作用数）の逆数を代用スコアとする。
+    # 接続数が少ない（無差別なハブでない）パートナーほど、その相互作用が特異的
+    # ＝意味がある可能性が高いという考え方に基づく。
+    no_score_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get("score") is None]
+    if no_score_edges:
+        partners_needing_count = [v if u == center else u for u, v in no_score_edges]
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            counts = dict(zip(partners_needing_count,
+                              ex.map(global_interactor_count, partners_needing_count)))
+        n_inferred = 0
+        for u, v in no_score_edges:
+            partner = v if u == center else u
+            count = counts.get(partner, -1)
+            if count and count > 0:
+                G.edges[u, v]["score"] = 1.0 / count
+                G.edges[u, v]["score_inferred"] = True
+                n_inferred += 1
+        if n_inferred:
+            print(f"  スコア未提供の {n_inferred} エッジに接続数逆数を代用スコアとして設定")
+
     # --- スコア下限フィルタ（共通クライテリア） ---
     if min_score is not None:
         drop = [(u, v) for u, v, d in G.edges(data=True)
