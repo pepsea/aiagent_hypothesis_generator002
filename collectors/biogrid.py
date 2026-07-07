@@ -47,19 +47,38 @@ def get_interactions(gene_symbol: str, api_key: str = None) -> list[dict]:
         print(f"  [BioGRID] エラー: {e}")
         return []
 
-    results = []
+    # BioGRID は同一ペアについて実験手法や文献違いで複数レコードを返すことが多い
+    # （異なる EXPERIMENTAL_SYSTEM / PUBMED_ID）。取得データ表示・PPIネットワーク
+    # 構築の両方で遺伝子ごとに重複させないため、パートナーごとに集約し1件のみ残す。
+    # 選択基準: スコアがあれば最大のもの、無ければ最初に見つかった1件。
+    best_by_partner: dict[str, dict] = {}
     gene_upper = gene_symbol.upper()
 
     for interaction_id, item in data.items():
         sym_a = item.get("OFFICIAL_SYMBOL_A", "")
         sym_b = item.get("OFFICIAL_SYMBOL_B", "")
         partner = sym_b if sym_a.upper() == gene_upper else sym_a
+        if not partner or partner.upper() == gene_upper:
+            continue
+
         exp_system = item.get("EXPERIMENTAL_SYSTEM", "")
         exp_type   = item.get("EXPERIMENTAL_SYSTEM_TYPE", "")
         pubmed_id  = str(item.get("PUBMED_ID", ""))
-        score      = item.get("SCORE", None)
+        score_raw  = item.get("SCORE", None)
+        score      = float(score_raw) if score_raw not in (None, "") else None
 
-        results.append({
+        key = partner.upper()
+        existing = best_by_partner.get(key)
+        if existing is not None:
+            existing_score = existing.get("score")
+            # 既存にスコアがあり、新規のスコアがそれ以下なら置き換えない
+            if existing_score is not None and (score is None or score <= existing_score):
+                continue
+            # 既存にスコアが無く、新規にも無い場合は既存（先着）を維持
+            if existing_score is None and score is None:
+                continue
+
+        best_by_partner[key] = {
             "source":      sym_a,
             "target":      sym_b,
             "partner":     partner,
@@ -68,8 +87,11 @@ def get_interactions(gene_symbol: str, api_key: str = None) -> list[dict]:
             "mechanism":   exp_system,
             "exp_type":    exp_type,
             "pmid":        pubmed_id,
-            "score":       float(score) if score not in (None, "") else None,
+            "score":       score,
             "db":          "BioGRID",
-        })
+        }
 
+    results = sorted(best_by_partner.values(),
+                     key=lambda x: x.get("score") if x.get("score") is not None else -1,
+                     reverse=True)
     return results
