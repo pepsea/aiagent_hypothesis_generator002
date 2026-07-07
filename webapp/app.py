@@ -269,7 +269,9 @@ def _collector_data(key: str, result) -> dict | None:
                      "mechanism": ix.get("mechanism", ""),
                      "direction": ix.get("direction", ""),
                      "score": ix.get("score"),
-                     "pmid": ix.get("pmid", "")} for ix in result[:30]]
+                     "pmid": ix.get("pmid", ""),
+                     "function": ix.get("partner_function", ""),
+                     "protein_name": ix.get("partner_protein_name", "")} for ix in result[:30]]
             return {"interactions": rows}
         if key == "gwas" and isinstance(result, list):
             return {"hits": [{"trait": h.get("trait", ""),
@@ -364,7 +366,8 @@ def analyze():
     ppi_sources = [s.lower() for s in ppi.get("sources", ["signor"])]
     use_signor  = "signor" in ppi_sources
     use_string  = "string" in ppi_sources
-    use_biogrid_sel = "biogrid" in ppi_sources and USE_BIOGRID
+    biogrid_requested = "biogrid" in ppi_sources
+    use_biogrid_sel = biogrid_requested and USE_BIOGRID
     string_score = int(ppi.get("string_score", 400))
     min_score    = ppi.get("min_score")
     min_score    = float(min_score) if min_score not in (None, "", "null") else None
@@ -407,6 +410,13 @@ def analyze():
                 COLLECTORS["string"] = lambda: string_db.get_interactions(gene, required_score=string_score)
             if use_biogrid_sel:
                 COLLECTORS["biogrid"] = lambda: biogrid.get_interactions(gene)
+            elif biogrid_requested:
+                # ユーザーは選択したが BIOGRID_API_KEY 未設定 → 理由を明示して失敗させる
+                def _biogrid_missing_key():
+                    raise RuntimeError(
+                        "BIOGRID_API_KEY が未設定です。サーバー環境変数に設定してください "
+                        "(https://webservice.thebiogrid.org/ で無料登録)")
+                COLLECTORS["biogrid"] = _biogrid_missing_key
             COLLECTORS.update({
                 "gwas":           lambda: gwas.get_gwas_associations(gene, disease_name),
                 "clinvar":        lambda: gwas.get_clinvar_variants(gene),
@@ -499,6 +509,23 @@ def analyze():
                         "protein_name": u.get("protein_name", ""),
                         "function": u.get("function", ""),
                     }
+
+                # PPI ソース（SIGNOR/STRING/BioGRID）の取得データ表示に
+                # 各パートナーの UniProt 機能を付与し、collector_done を再送信して
+                # 取得データタブの表示を更新する
+                for src in ("signor", "string", "biogrid"):
+                    raw = results.get(src)
+                    if not isinstance(raw, list) or not raw:
+                        continue
+                    for ix in raw:
+                        p = (ix.get("partner") or "").upper()
+                        info = all_functions.get(p)
+                        if info:
+                            ix["partner_function"] = info.get("function", "")
+                            ix["partner_protein_name"] = info.get("protein_name", "")
+                    send("collector_done", gene=gene, source=src, ok=True,
+                         summary=_collector_summary(src, raw, None),
+                         data=_collector_data(src, raw))
 
             # ── 4. LLM context ────────────────────────────────────────────────
             context = aggregator.build_llm_context(evidence, config=None)

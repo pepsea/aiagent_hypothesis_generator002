@@ -55,18 +55,33 @@ python webapp/app.py
 1. **モデル選択** — Ollama にある LLM から選択
 2. **疾患選択** — 疾患名を検索（OpenTargets）して確定
 3. **遺伝子リスト** — HGNC シンボルを入力し検証
-4. **解析開始** — 遺伝子ごとに以下がリアルタイム表示されます
-   - **取得データ** タブ: 14 ソースの収集状況と内容（クリックで詳細）
+4. **PPI 設定** — データソース（SIGNOR / STRING / BioGRID）とクライテリア
+   （STRING 信頼度閾値・エッジ最小スコア・ハブ除外閾値・最大パートナー数）を指定
+5. **解析開始** — 遺伝子ごとに以下がリアルタイム表示されます
+   - **取得データ** タブ: 各ソースの収集状況と内容（クリックで詳細）。
+     SIGNOR/STRING/BioGRID の結果には対象遺伝子・パートナーの UniProt 機能も併記
    - **仮説** タブ: LLM 生成をストリーミング表示
-   - **PPI** タブ: タンパク質相互作用ネットワーク図＋パートナー一覧
-   - **エンリッチメント** タブ: GO / Reactome 機能解析（ヒット遺伝子付き）
+   - **PPI** タブ: タンパク質相互作用ネットワーク図＋パートナー一覧＋機能リスト
+   - **エンリッチメント** タブ: GO / Reactome 機能解析（ヒット遺伝子付き、ハブ遺伝子は除外）
    - **ダウンロード** タブ: Markdown レポート
+
+### BioGRID を使う場合
+
+BioGRID は非商用・学術利用限定ライセンスのため、API キーを環境変数で
+指定したときのみ有効になります（未設定時は取得データに理由付きで
+表示されます）。
+
+```bash
+# https://webservice.thebiogrid.org/ で無料登録してキーを取得
+export BIOGRID_API_KEY=あなたのキー
+python webapp/app.py
+```
 
 ---
 
 ## データソース
 
-PubMed / OpenTargets / UniProt / IntAct / SIGNOR / Reactome / GWAS Catalog /
+PubMed / OpenTargets / UniProt / SIGNOR / STRING / BioGRID（任意） / GWAS Catalog /
 ClinVar / ChEMBL / gnomAD / GTEx / Human Protein Atlas / DGIdb /
 ClinicalTrials.gov / AlphaFold / g:Profiler（エンリッチメント）
 
