@@ -276,6 +276,7 @@ def rank_partners(
     G: "nx.Graph",
     center: str,
     exclude_hubs: bool = True,
+    exclude_non_gene: bool = True,
     hub_threshold: int | None = None,
 ) -> list[str]:
     """PPIパートナーを優先度順に並べて返す。
@@ -287,9 +288,13 @@ def rank_partners(
 
     exclude_hubs: True の場合、ハブ遺伝子（既知の非特異ハブ族、または
         グローバル相互作用数が hub_threshold 超）をリストから除外する。
-        仮説生成用コンテキスト（LLM・UniProt機能リスト・MDレポート）に
+        仮説生成用コンテキスト（LLM・エンリッチメント・MDレポート）に
         非特異的なハブが紛れ込むのを防ぐ。エンリッチメント解析の
         除外基準（run_network_enrichment）と同じ判定を用いる。
+        取得データタブでの機能表示など「全パートナーを見せたいが解析対象
+        からは外したい」場合は False にする（exclude_non_gene は独立）。
+    exclude_non_gene: True の場合、化合物・フェノタイプ等の非遺伝子ノードを
+        常に除外する（exclude_hubs の設定に関わらず適用）。
     """
     def key(n):
         ed = G.edges[center, n]
@@ -300,25 +305,25 @@ def rank_partners(
         return (n_db, score, weight)
 
     ranked = sorted(G.neighbors(center), key=key, reverse=True)
-
-    if not exclude_hubs:
-        return ranked
-
-    threshold = hub_threshold if hub_threshold is not None else HUB_DEGREE_THRESHOLD
     candidates = [n for n in ranked if n != center]
-    non_gene = {n for n in candidates
-                if G.nodes[n].get("entity_type", "gene") != "gene"}
-    family_hubs = {n for n in candidates if is_hub_family(n)}
 
-    # 残った候補（族に該当しない・非遺伝子でない）だけ次数を問い合わせる
-    to_check = [n for n in candidates if n not in family_hubs and n not in non_gene]
-    degree_hubs = set()
-    if to_check:
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            counts = dict(zip(to_check, ex.map(global_interactor_count, to_check)))
-        degree_hubs = {n for n, c in counts.items() if c > threshold}
+    excluded = set()
+    if exclude_non_gene:
+        excluded |= {n for n in candidates
+                     if G.nodes[n].get("entity_type", "gene") != "gene"}
 
-    excluded = non_gene | family_hubs | degree_hubs
+    if exclude_hubs:
+        threshold = hub_threshold if hub_threshold is not None else HUB_DEGREE_THRESHOLD
+        family_hubs = {n for n in candidates if is_hub_family(n)}
+        # 残った候補（族に該当しない・既に除外対象でない）だけ次数を問い合わせる
+        to_check = [n for n in candidates if n not in family_hubs and n not in excluded]
+        degree_hubs = set()
+        if to_check:
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                counts = dict(zip(to_check, ex.map(global_interactor_count, to_check)))
+            degree_hubs = {n for n, c in counts.items() if c > threshold}
+        excluded |= family_hubs | degree_hubs
+
     return [n for n in ranked if n not in excluded]
 
 
@@ -532,17 +537,19 @@ def network_summary_for_llm(
     max_partners: int = 10,
     max_terms: int = 15,
     partner_functions: dict | None = None,
+    hub_threshold: int | None = None,
 ) -> str:
     """LLM プロンプト用のネットワーク・エンリッチメントサマリーを返す。
 
     partner_functions: {GENE(upper): {"protein_name","function"}} を渡すと
         各 PPI パートナーの UniProt 機能情報を仮説生成コンテキストに含める。
+    ハブ遺伝子は rank_partners の既定どおり除外される（仮説生成対象から外す）。
     """
     if G is None:
         return ""
 
     center = gene_symbol.upper()
-    partners = rank_partners(G, center)[:max_partners]
+    partners = rank_partners(G, center, hub_threshold=hub_threshold)[:max_partners]
     n_nodes  = G.number_of_nodes()
     n_edges  = G.number_of_edges()
 

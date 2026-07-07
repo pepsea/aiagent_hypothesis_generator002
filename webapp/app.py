@@ -516,13 +516,20 @@ def analyze():
                 send("progress", gene=gene, step="ppi", message=f"PPI警告: {e}")
 
             # ── 3. UniProt 機能情報（対象遺伝子 + PPI パートナー） ───────────────
+            # 表示用（取得データタブ）: 化合物等は除くがハブは含む「全パートナー」
+            #   → タンパク質である限り、ハブでも機能・リンクを表示する
+            # 解析用（LLMコンテキスト・エンリッチメント・MDレポート）: ハブも除外
+            #   → 仮説生成・機能解析には非特異的なハブを混入させない
             all_functions = {}
             if ppi_graph:
-                ppi_partners = net.rank_partners(ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes]
+                display_partners = net.rank_partners(
+                    ppi_graph, gene.upper(), exclude_hubs=False, exclude_non_gene=True)
+                ppi_partners = net.rank_partners(
+                    ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes]
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
                 try:
-                    all_functions = uniprot.get_functions_for_genes([gene] + ppi_partners)
+                    all_functions = uniprot.get_functions_for_genes([gene] + display_partners)
                 except Exception:
                     all_functions = {}
                 # 対象遺伝子の機能は uniprot コレクター結果からも補完
@@ -555,7 +562,8 @@ def analyze():
             context = aggregator.build_llm_context(evidence, config=None)
             if ppi_graph:
                 context += "\n\n" + net.network_summary_for_llm(
-                    ppi_graph, gene, enrichment, partner_functions=all_functions)
+                    ppi_graph, gene, enrichment,
+                    partner_functions=all_functions, hub_threshold=hub_threshold)
 
             # ── 4. Hypothesis streaming ───────────────────────────────────────
             send("progress", gene=gene, step="llm", message="仮説生成中...")
