@@ -58,15 +58,33 @@ def get_interactions(gene_symbol: str, required_score: int = 400,
     except Exception:
         return []
 
+    # STRING の network エンドポイントは、指定した遺伝子自身が関与する行だけでなく
+    # 「パートナー同士の相互作用」行も返す（ネットワーク全体の構造を表現するため）。
+    # そのため中心遺伝子が関与しない行を除外し、かつ同一パートナーが複数行に
+    # 現れる場合は最高スコアの1件のみを残す（重複表示防止）。
     center = gene_symbol.upper()
-    interactions = []
+    best_by_partner: dict[str, dict] = {}
     for row in rows:
         a = (row.get("preferredName_A") or "").strip()
         b = (row.get("preferredName_B") or "").strip()
-        partner = b if a.upper() == center else a
+        a_up, b_up = a.upper(), b.upper()
+
+        if center == a_up:
+            partner = b
+        elif center == b_up:
+            partner = a
+        else:
+            continue  # 中心遺伝子が関与しない行（パートナー同士の相互作用）は無視
+
         if not partner or partner.upper() == center:
             continue
-        interactions.append({
+
+        score = row.get("score") or 0
+        key = partner.upper()
+        if key in best_by_partner and (best_by_partner[key].get("score") or 0) >= score:
+            continue  # 既により高スコアの行を保持済み
+
+        best_by_partner[key] = {
             "source":       gene_symbol,
             "target":       partner,
             "partner":      partner,
@@ -88,8 +106,8 @@ def get_interactions(gene_symbol: str, required_score: int = 400,
             },
             "pmid":         "",
             "db":           "STRING",
-        })
+        }
 
-    interactions.sort(key=lambda x: x.get("score") or 0, reverse=True)
+    interactions = sorted(best_by_partner.values(), key=lambda x: x.get("score") or 0, reverse=True)
     _save_cache(gene_symbol, required_score, interactions)
     return interactions
