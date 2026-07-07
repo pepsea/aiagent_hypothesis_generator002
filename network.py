@@ -24,12 +24,35 @@ except ImportError:
 from collectors import intact, signor, biogrid, string_db, enrichment as enrich_mod
 from collectors import reactome as reactome_mod
 
-# ── ハブ遺伝子の客観的判定 ────────────────────────────────────────────────
-# 「ハブ」を恣意的なリストではなく、公開DB(IntAct)で測定した
-# グローバル相互作用数（total interactor count）で定義する。
-# 相互作用数がこの閾値を超える遺伝子は、無差別に多数のタンパク質と
-# 相互作用する非特異的ハブとみなし、エンリッチメント入力から除外する。
+import re
+
+# ── ハブ遺伝子の判定基準（2つの客観ルールの OR）───────────────────────────
+# (1) グローバル相互作用数（IntAct 実測値）が閾値を超える → 非特異的ハブ
+# (2) 既知の「無差別に相互作用するタンパク質族」に遺伝子名が一致する
+#     （G タンパク質サブユニット、ユビキチン、チューブリン等）。これらは
+#     相互作用数が中程度でもシグナル/構造の非特異ハブとして機能するため、
+#     数だけでは捕捉できない。族はパターン（正規表現）で定義し再現可能。
 HUB_DEGREE_THRESHOLD = int(os.environ.get("HUB_DEGREE_THRESHOLD", "3000"))
+
+# 非特異ハブ族の遺伝子名パターン（HGNC 命名規則に基づく）
+HUB_FAMILY_PATTERNS = [
+    r"^GNA[0-9A-Z]",  # G タンパク質 α サブユニット (GNAI2, GNAQ, GNAS, GNA11, GNAO1 …)
+    r"^GNB[0-9]",     # G タンパク質 β サブユニット (GNB1, GNB2 …)
+    r"^GNG[0-9]",     # G タンパク質 γ サブユニット (GNG2 …)
+    r"^UB[ABC][0-9]?$",  # ユビキチン (UBC, UBB, UBA52 …)
+    r"^RPS27A$",      # ユビキチン融合
+    r"^TUB[AB]",      # チューブリン (TUBB, TUBA1A, TUBB4B …)
+    r"^ACT[BG][0-9]?$",  # アクチン (ACTB, ACTG1)
+    r"^HSP(90|A)",    # 主要シャペロン (HSP90AA1, HSPA8 …)
+    r"^YWHA[BEGHQZ]$",  # 14-3-3 (YWHAZ, YWHAE …)
+    r"^SUMO[0-9]$",   # SUMO
+]
+_HUB_FAMILY_RE = re.compile("|".join(HUB_FAMILY_PATTERNS))
+
+
+def is_hub_family(gene_symbol: str) -> bool:
+    """既知の非特異ハブ族（G タンパク質・ユビキチン等）に一致するか。"""
+    return bool(_HUB_FAMILY_RE.match(gene_symbol.upper()))
 
 _HUB_CACHE_DIR = Path(__file__).parent / "ppi_cache" / "hub_degree"
 _HUB_CACHE_TTL = 30 * 24 * 3600   # 30日（相互作用数は頻繁には変わらない）
@@ -306,20 +329,29 @@ def run_network_enrichment(
     if excluded:
         print(f"  エンリッチメント除外（非遺伝子）: {', '.join(excluded)}")
 
-    # ハブ遺伝子を「グローバル相互作用数」で客観的に除外（中心遺伝子は必ず残す）
+    # ハブ遺伝子を除外（中心遺伝子は必ず残す）
+    #   ルール(1): グローバル相互作用数 > threshold
+    #   ルール(2): 既知の非特異ハブ族（G タンパク質・ユビキチン等）に一致
     excluded_hubs = []
     if exclude_hubs and gene_list:
         center = next((n for n in G.nodes if G.nodes[n].get("db") == "center"), None)
         candidates = [g for g in gene_list if g != center]
-        # 各遺伝子の相互作用数を並列取得
         with ThreadPoolExecutor(max_workers=10) as ex:
             counts = dict(zip(candidates, ex.map(global_interactor_count, candidates)))
-        hubs = {g for g, c in counts.items() if c > threshold}   # c<0（取得失敗）は除外しない
+        hubs = {}
+        for g in candidates:
+            if is_hub_family(g):
+                hubs[g] = {"count": counts.get(g, -1), "reason": "family"}
+            elif counts.get(g, -1) > threshold:
+                hubs[g] = {"count": counts[g], "reason": "degree"}
         if hubs:
-            excluded_hubs = [{"gene": g, "interactor_count": counts[g]}
-                             for g in sorted(hubs, key=lambda x: counts[x], reverse=True)]
-            desc = ", ".join(f"{h['gene']}({h['interactor_count']})" for h in excluded_hubs)
-            print(f"  エンリッチメント除外（ハブ: 相互作用数>{threshold}）: {desc}")
+            order = sorted(hubs, key=lambda x: hubs[x]["count"], reverse=True)
+            excluded_hubs = [{"gene": g, "interactor_count": hubs[g]["count"],
+                              "reason": hubs[g]["reason"]} for g in order]
+            desc = ", ".join(
+                f"{g}({hubs[g]['count'] if hubs[g]['count'] >= 0 else '?'}"
+                f"{'/族' if hubs[g]['reason']=='family' else ''})" for g in order)
+            print(f"  エンリッチメント除外（ハブ）: {desc}")
             gene_list = [g for g in gene_list if g not in hubs]
 
     print(f"  エンリッチメント対象: {len(gene_list)} 遺伝子")

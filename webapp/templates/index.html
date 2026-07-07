@@ -332,6 +332,8 @@ let selectedDisease = null;
 let validatedGenes  = [];
 let eventSource     = null;
 let geneState       = {};  // gene -> {tokens:[], done:false}
+let analyzeAbort    = null; // AbortController for the active /api/analyze fetch
+let currentJobId    = null; // id for server-side cancellation
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -463,6 +465,9 @@ function startAnalysis() {
     validatedGenes = raw;
   }
   if (eventSource) { eventSource.close(); }
+  if (analyzeAbort) { analyzeAbort.abort(); }
+  analyzeAbort = new AbortController();
+  currentJobId = "job-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
 
   const model = document.getElementById("model-select").value;
   const lang  = document.getElementById("lang-select").value;
@@ -487,11 +492,12 @@ function startAnalysis() {
   fetch("/api/analyze", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
+    signal: analyzeAbort.signal,
     body: JSON.stringify({
       genes: validatedGenes,
       disease_name: selectedDisease.name,
       disease_id: selectedDisease.id,
-      model, lang,
+      model, lang, job_id: currentJobId,
       ppi: collectPpiConfig()
     })
   }).then(resp => {
@@ -514,15 +520,24 @@ function startAnalysis() {
     }
     read();
   }).catch(e => {
-    logMsg(`エラー: ${e.message}`, "err");
+    if (e.name === "AbortError") { logMsg("停止しました", "err"); }
+    else { logMsg(`エラー: ${e.message}`, "err"); }
     onBatchFinished();
   });
 }
 
 function stopAnalysis() {
-  if (eventSource) { eventSource.close(); eventSource = null; }
+  logMsg("停止要求を送信中...", "err");
+  // 1. サーバー側の生成スレッドをキャンセル（Ollama ストリーミングを中断）
+  if (currentJobId) {
+    fetch("/api/stop", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ job_id: currentJobId })
+    }).catch(() => {});
+  }
+  // 2. クライアント側の fetch も中断
+  if (analyzeAbort) { analyzeAbort.abort(); analyzeAbort = null; }
   onBatchFinished();
-  logMsg("停止しました", "err");
 }
 
 function onBatchFinished() {
@@ -564,6 +579,10 @@ function handleEvent(ev) {
     case "batch_done":
       logMsg(`全処理完了 (${ev.total} 遺伝子)`, "ok");
       document.getElementById("batch-status").textContent = `完了: ${ev.total} 遺伝子`; break;
+    case "stopped":
+      logMsg(ev.message || "停止しました", "err");
+      document.getElementById("batch-status").textContent = "停止しました";
+      onBatchFinished(); break;
   }
 }
 
@@ -1053,15 +1072,19 @@ function renderPartnerFunctions(funcs) {
 
 function renderExcludedHubs(hubs) {
   if (!hubs || !hubs.length) return "";
-  const tags = hubs.map(h =>
-    `<span style="display:inline-block;background:#fef2f2;border:1px solid #fecaca;
+  const tags = hubs.map(h => {
+    const note = h.reason === "family"
+      ? "族"
+      : (h.interactor_count >= 0 ? h.interactor_count : "?");
+    return `<span style="display:inline-block;background:#fef2f2;border:1px solid #fecaca;
                   border-radius:4px;padding:1px 7px;margin:2px;font-size:11px;font-family:monospace;">
-       ${esc(h.gene)} <span style="color:var(--text-sub)">(${h.interactor_count})</span>
-     </span>`).join("");
+       ${esc(h.gene)} <span style="color:var(--text-sub)">(${note})</span>
+     </span>`;
+  }).join("");
   return `<div class="data-section-title" style="margin-top:16px;">
             エンリッチメントから除外したハブ遺伝子
             <span style="font-size:11px;font-weight:400;color:var(--text-sub);margin-left:6px;">
-              IntAct 相互作用数が閾値を超え、機能解析の特異性を下げるため除外（括弧内=相互作用数）
+              相互作用数が閾値超（括弧内=数）／既知ハブ族（括弧内=族）は機能解析の特異性を下げるため除外
             </span>
           </div>
           <div>${tags}</div>`;

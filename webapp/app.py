@@ -327,6 +327,24 @@ def _collector_data(key: str, result) -> dict | None:
     return None
 
 
+# ─── Job cancellation registry ─────────────────────────────────────────────
+_JOBS: dict[str, threading.Event] = {}
+
+
+class _Cancelled(Exception):
+    pass
+
+
+@app.route("/api/stop", methods=["POST"])
+def stop_job():
+    job_id = (request.json or {}).get("job_id", "")
+    ev = _JOBS.get(job_id)
+    if ev:
+        ev.set()
+        return jsonify({"stopped": True})
+    return jsonify({"stopped": False})
+
+
 # ─── API: analyze (SSE streaming) ─────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
@@ -336,6 +354,10 @@ def analyze():
     disease_id   = data.get("disease_id", "")
     lang         = data.get("lang", LANG)
     model        = data.get("model", MODEL)
+    job_id       = data.get("job_id", "")
+    cancel_ev    = threading.Event()
+    if job_id:
+        _JOBS[job_id] = cancel_ev
 
     # ── PPI 設定（ソース選択・クライテリア） ──────────────────────────────
     ppi = data.get("ppi", {}) or {}
@@ -367,6 +389,9 @@ def analyze():
         send("start", total=len(genes), disease=disease_name)
 
         for idx, gene in enumerate(genes):
+            if cancel_ev.is_set():
+                send("stopped", message="ユーザーにより停止されました")
+                break
             send("gene_start", gene=gene, index=idx, total=len(genes))
 
             # ── 1. Parallel data collection with per-collector SSE events ──────
@@ -486,6 +511,8 @@ def analyze():
             hypothesis_parts = []
 
             def on_token(tok, _gene=gene):
+                if cancel_ev.is_set():
+                    raise _Cancelled()   # Ollama ストリーミングを中断
                 hypothesis_parts.append(tok)
                 q.put({"type": "token", "gene": _gene, "token": tok})
 
@@ -494,7 +521,13 @@ def analyze():
                     gene, disease_name, context, llm,
                     lang=lang, stream_callback=on_token,
                 )
+            except _Cancelled:
+                send("stopped", message="ユーザーにより停止されました")
+                break
             except Exception as e:
+                if cancel_ev.is_set():
+                    send("stopped", message="ユーザーにより停止されました")
+                    break
                 send("gene_error", gene=gene, error=f"仮説生成失敗: {e}")
                 continue
 
@@ -549,7 +582,9 @@ def analyze():
                  enrichment_results=(enrichment or {}).get("results", [])[:100],
                  excluded_hubs=(enrichment or {}).get("excluded_hubs", []))
 
-        send("batch_done", total=len(genes))
+        if not cancel_ev.is_set():
+            send("batch_done", total=len(genes))
+        _JOBS.pop(job_id, None)
         q.put(None)  # sentinel
 
     thread = threading.Thread(target=run, daemon=True)
