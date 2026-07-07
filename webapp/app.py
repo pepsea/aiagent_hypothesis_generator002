@@ -18,6 +18,29 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+def _load_dotenv():
+    """プロジェクトルート / webapp の .env を読み込み os.environ に反映する。
+
+    export した環境変数はシェルセッションに紐づき、別プロセス（例:
+    サーバーの再起動や別ターミナルから起動した場合）には引き継がれない。
+    .env ファイルに書いておけば、起動するたびに確実に読み込まれる。
+    既存の環境変数がある場合はそちらを優先し、.env では上書きしない。
+    """
+    for path in (Path(__file__).parent.parent / ".env", Path(__file__).parent / ".env"):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+
+_load_dotenv()
+
 # BIOGRID_API_KEY が設定されていれば BioGRID を PPI に含める（非商用ライセンス）
 USE_BIOGRID = bool(os.environ.get("BIOGRID_API_KEY"))
 
