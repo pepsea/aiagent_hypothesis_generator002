@@ -243,12 +243,47 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
   </div>
 
   <!-- Gene list -->
-  <div class="card" style="flex:1;">
+  <div class="card">
     <div class="card-title">② 遺伝子リスト</div>
     <textarea id="gene-input" placeholder="1行1遺伝子（HGNC シンボル）&#10;例:&#10;BRCA1&#10;TP53&#10;EGFR"></textarea>
     <button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;"
             onclick="validateGenes()">HGNC 検証</button>
     <div id="gene-validation" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+
+  <!-- PPI settings -->
+  <div class="card" style="flex:1;">
+    <div class="card-title">③ PPI 設定</div>
+    <div style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">データソース</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:13px;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="ppi-signor" checked> SIGNOR <span style="color:var(--text-sub);font-size:11px;">（因果・機序付き）</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="ppi-string"> STRING <span style="color:var(--text-sub);font-size:11px;">（信頼度スコア）</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="ppi-biogrid"> BioGRID <span style="color:var(--text-sub);font-size:11px;">（要APIキー）</span>
+      </label>
+    </div>
+
+    <div style="margin-top:12px;font-size:12px;color:var(--text-sub);">クライテリア</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+      <label style="font-size:12px;">STRING 信頼度閾値: <b id="string-score-val">400</b>
+        <input type="range" id="ppi-string-score" min="150" max="900" step="50" value="400"
+               style="width:100%;" oninput="document.getElementById('string-score-val').textContent=this.value">
+        <span style="font-size:10px;color:var(--text-sub);">150=低 / 400=中 / 700=高</span>
+      </label>
+      <label style="font-size:12px;">エッジ最小スコア（共通）:
+        <input type="text" id="ppi-min-score" placeholder="例: 0.4（空欄=なし）" style="margin-top:2px;">
+      </label>
+      <label style="font-size:12px;">ハブ除外閾値（相互作用数）:
+        <input type="text" id="ppi-hub-threshold" value="3000" style="margin-top:2px;">
+      </label>
+      <label style="font-size:12px;">最大パートナー数:
+        <input type="text" id="ppi-max-nodes" value="30" style="margin-top:2px;">
+      </label>
+    </div>
   </div>
 
   <!-- Run -->
@@ -397,8 +432,29 @@ async function validateGenes() {
 }
 
 // ── Analysis ───────────────────────────────────────────────────────────────
+function collectPpiConfig() {
+  const sources = [];
+  if (document.getElementById("ppi-signor").checked) sources.push("signor");
+  if (document.getElementById("ppi-string").checked) sources.push("string");
+  if (document.getElementById("ppi-biogrid").checked) sources.push("biogrid");
+  const num = (id, def) => {
+    const v = parseFloat(document.getElementById(id).value);
+    return isNaN(v) ? def : v;
+  };
+  const minRaw = document.getElementById("ppi-min-score").value.trim();
+  return {
+    sources,
+    string_score: num("ppi-string-score", 400),
+    min_score: minRaw === "" ? null : parseFloat(minRaw),
+    hub_threshold: num("ppi-hub-threshold", 3000),
+    max_nodes: num("ppi-max-nodes", 30),
+  };
+}
+
 function startAnalysis() {
   if (!selectedDisease) { alert("疾患を選択してください"); return; }
+  const ppiCfg = collectPpiConfig();
+  if (!ppiCfg.sources.length) { alert("PPIデータソースを少なくとも1つ選択してください"); return; }
   if (!validatedGenes.length) {
     // try raw input
     const raw = document.getElementById("gene-input").value
@@ -435,7 +491,8 @@ function startAnalysis() {
       genes: validatedGenes,
       disease_name: selectedDisease.name,
       disease_id: selectedDisease.id,
-      model, lang
+      model, lang,
+      ppi: collectPpiConfig()
     })
   }).then(resp => {
     const reader = resp.body.getReader();

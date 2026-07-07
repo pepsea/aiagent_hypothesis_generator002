@@ -34,7 +34,7 @@ from llm.ollama_client import OllamaClient, OLLAMA_BASE_URL
 from collectors import (
     pubmed, opentargets, uniprot, intact, gwas, chembl,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
-    reactome, toxicity, signor, biogrid,
+    reactome, toxicity, signor, biogrid, string_db,
 )
 
 app = Flask(__name__)
@@ -129,7 +129,7 @@ def validate_genes():
 # ─── Collector helpers ────────────────────────────────────────────────────
 _SRC_LABEL = {
     "pubmed": "PubMed", "opentargets": "OpenTargets", "uniprot": "UniProt",
-    "signor": "SIGNOR", "biogrid": "BioGRID", "intact": "IntAct",
+    "signor": "SIGNOR", "string": "STRING", "biogrid": "BioGRID", "intact": "IntAct",
     "gwas": "GWAS", "clinvar": "ClinVar",
     "chembl": "ChEMBL", "gnomad": "gnomAD", "gtex": "GTEx",
     "hpa": "HPA", "dgidb": "DGIdb", "clinicaltrials": "ClinicalTrials",
@@ -160,7 +160,7 @@ def _collector_summary(key: str, result, err: str | None) -> str:
             partners = list({p for ix in result for p in (ix.get("partners") or [])})
             return f"{len(result)} interactions / {len(partners)} partners"
         return "取得済み"
-    if key in ("signor", "biogrid"):
+    if key in ("signor", "biogrid", "string"):
         if isinstance(result, list):
             partners = {ix.get("partner") for ix in result if ix.get("partner")}
             return f"{len(result)} interactions / {len(partners)} partners"
@@ -263,7 +263,7 @@ def _collector_data(key: str, result) -> dict | None:
                                  "score": ix.get("confidence"),
                                  "pmid": (ix.get("pubmed_ids") or [""])[0]})
             return {"interactions": rows}
-        if key in ("signor", "biogrid") and isinstance(result, list):
+        if key in ("signor", "biogrid", "string") and isinstance(result, list):
             rows = [{"partner": ix.get("partner", ""),
                      "effect": ix.get("effect", ""),
                      "mechanism": ix.get("mechanism", ""),
@@ -337,6 +337,18 @@ def analyze():
     lang         = data.get("lang", LANG)
     model        = data.get("model", MODEL)
 
+    # ── PPI 設定（ソース選択・クライテリア） ──────────────────────────────
+    ppi = data.get("ppi", {}) or {}
+    ppi_sources = [s.lower() for s in ppi.get("sources", ["signor"])]
+    use_signor  = "signor" in ppi_sources
+    use_string  = "string" in ppi_sources
+    use_biogrid_sel = "biogrid" in ppi_sources and USE_BIOGRID
+    string_score = int(ppi.get("string_score", 400))
+    min_score    = ppi.get("min_score")
+    min_score    = float(min_score) if min_score not in (None, "", "null") else None
+    hub_threshold = int(ppi.get("hub_threshold", 3000))
+    max_nodes    = int(ppi.get("max_nodes", 30))
+
     if not genes or not disease_name:
         return jsonify({"error": "genes and disease_name required"}), 400
 
@@ -362,8 +374,15 @@ def analyze():
                 "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=8, disease_efo_id=disease_id),
                 "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
                 "uniprot":        lambda: uniprot.get_protein_info(gene),
-                "signor":         lambda: signor.get_interactions(gene),
-                "biogrid":        lambda: biogrid.get_interactions(gene) if USE_BIOGRID else [],
+            }
+            # 選択された PPI ソースのみ取得データに含める
+            if use_signor:
+                COLLECTORS["signor"] = lambda: signor.get_interactions(gene)
+            if use_string:
+                COLLECTORS["string"] = lambda: string_db.get_interactions(gene, required_score=string_score)
+            if use_biogrid_sel:
+                COLLECTORS["biogrid"] = lambda: biogrid.get_interactions(gene)
+            COLLECTORS.update({
                 "gwas":           lambda: gwas.get_gwas_associations(gene, disease_name),
                 "clinvar":        lambda: gwas.get_clinvar_variants(gene),
                 "chembl":         lambda: chembl.get_drugs_for_target(gene),
@@ -374,7 +393,7 @@ def analyze():
                 "clinicaltrials": lambda: clinicaltrials.get_trials(gene, disease_name),
                 "alphafold":      lambda: alphafold.get_structure_info(gene),
                 "reactome":       lambda: reactome.get_pathways(gene),
-            }
+            })
 
             send("collecting_start", gene=gene, sources=list(COLLECTORS.keys()))
 
@@ -422,21 +441,26 @@ def analyze():
             send("progress", gene=gene, step="ppi", message="PPIネットワーク構築中...")
             ppi_graph, enrichment = None, {}
             try:
-                ppi_graph = net.build_ppi_network(gene, use_biogrid=USE_BIOGRID,
-                                                  use_reactome=False, use_intact=False)
-                enrichment = net.run_network_enrichment(ppi_graph) if ppi_graph else {}
+                ppi_graph = net.build_ppi_network(
+                    gene,
+                    use_signor=use_signor, use_string=use_string,
+                    use_biogrid=use_biogrid_sel,
+                    string_required_score=string_score, min_score=min_score,
+                    use_reactome=False, use_intact=False)
+                enrichment = net.run_network_enrichment(
+                    ppi_graph, hub_threshold=hub_threshold) if ppi_graph else {}
                 if ppi_graph:
                     send("ppi_done", gene=gene,
                          nodes=ppi_graph.number_of_nodes(),
                          edges=ppi_graph.number_of_edges(),
-                         partners=net.rank_partners(ppi_graph, gene.upper())[:30])
+                         partners=net.rank_partners(ppi_graph, gene.upper())[:max_nodes])
             except Exception as e:
                 send("progress", gene=gene, step="ppi", message=f"PPI警告: {e}")
 
             # ── 3. UniProt 機能情報（対象遺伝子 + PPI パートナー） ───────────────
             all_functions = {}
             if ppi_graph:
-                ppi_partners = net.rank_partners(ppi_graph, gene.upper())[:30]
+                ppi_partners = net.rank_partners(ppi_graph, gene.upper())[:max_nodes]
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
                 try:
@@ -483,9 +507,9 @@ def analyze():
             ppi_section, ppi_image_rel, partners = "", "", []
             if ppi_graph and ppi_graph.number_of_edges() > 0:
                 img_name = f"{ts}_ppi.png"
-                partners = net.rank_partners(ppi_graph, gene.upper())[:30]
+                partners = net.rank_partners(ppi_graph, gene.upper())[:max_nodes]
                 if net.render_ppi_image(ppi_graph, gene, str(pair_dir / img_name),
-                                        enrichment=enrichment, max_nodes=30):
+                                        enrichment=enrichment, max_nodes=max_nodes):
                     ppi_section = rpt.ppi_md(gene, img_name, partners=partners,
                                              functions=all_functions)
                     ppi_image_rel = str(pair_dir / img_name)

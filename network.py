@@ -21,7 +21,7 @@ try:
 except ImportError:
     HAS_NX = False
 
-from collectors import intact, signor, biogrid, enrichment as enrich_mod
+from collectors import intact, signor, biogrid, string_db, enrichment as enrich_mod
 from collectors import reactome as reactome_mod
 
 # ── ハブ遺伝子の客観的判定 ────────────────────────────────────────────────
@@ -80,15 +80,20 @@ def build_ppi_network(
     biogrid_api_key: str | None = None,
     use_reactome: bool = False,
     use_intact: bool = False,
+    use_signor: bool = True,
+    use_string: bool = False,
+    string_required_score: int = 400,
+    min_score: float | None = None,
 ) -> Optional["nx.Graph"]:
-    """SIGNOR + BioGRID（既定）の相互作用から NetworkX グラフを構築する。
+    """選択された PPI ソースから NetworkX グラフを構築する。
 
-    既定では SIGNOR（CC BY 4.0）と BioGRID を使用。
-    IntAct・Reactome はオプション（use_intact / use_reactome）。
+    ソース選択: use_signor / use_string / use_biogrid /（use_intact / use_reactome）。
+    string_required_score: STRING の信頼度閾値（0–1000、400=中, 700=高）。
+    min_score: 全ソース共通のエッジスコア下限（None なら適用しない）。
     BioGRID は非商用・学術利用限定ライセンス（BIOGRID_API_KEY が必要）。
 
     Returns:
-        nx.Graph: ノード属性に db, color, direct_partner を持つグラフ
+        nx.Graph: ノード属性に db, color, entity_type を持つグラフ
                   networkx 未インストールの場合は None
     """
     if not HAS_NX:
@@ -171,13 +176,24 @@ def build_ppi_network(
             print(f"  [IntAct] エラー: {e}")
 
     # --- SIGNOR ---
-    try:
-        print("  SIGNOR 取得中...")
-        sg_data = signor.get_interactions(gene_symbol)
-        add_edges(sg_data, "SIGNOR")
-        print(f"  SIGNOR: {len(sg_data)} 件")
-    except Exception as e:
-        print(f"  [SIGNOR] エラー: {e}")
+    if use_signor:
+        try:
+            print("  SIGNOR 取得中...")
+            sg_data = signor.get_interactions(gene_symbol)
+            add_edges(sg_data, "SIGNOR")
+            print(f"  SIGNOR: {len(sg_data)} 件")
+        except Exception as e:
+            print(f"  [SIGNOR] エラー: {e}")
+
+    # --- STRING（任意、信頼度閾値付き） ---
+    if use_string:
+        try:
+            print(f"  STRING 取得中... (required_score={string_required_score})")
+            st_data = string_db.get_interactions(gene_symbol, required_score=string_required_score)
+            add_edges(st_data, "STRING")
+            print(f"  STRING: {len(st_data)} 件")
+        except Exception as e:
+            print(f"  [STRING] エラー: {e}")
 
     # --- BioGRID (任意) ---
     if use_biogrid:
@@ -199,6 +215,18 @@ def build_ppi_network(
         except Exception as e:
             print(f"  [Reactome] エラー: {e}")
 
+    # --- スコア下限フィルタ（共通クライテリア） ---
+    if min_score is not None:
+        drop = [(u, v) for u, v, d in G.edges(data=True)
+                if d.get("score") is not None and d["score"] < min_score]
+        G.remove_edges_from(drop)
+        # 孤立ノード（中心以外）を削除
+        isolated = [n for n in list(G.nodes)
+                    if n != center and G.degree(n) == 0]
+        G.remove_nodes_from(isolated)
+        if drop:
+            print(f"  スコア下限 {min_score} で {len(drop)} エッジ除外")
+
     print(f"  ネットワーク: {G.number_of_nodes()} ノード / {G.number_of_edges()} エッジ")
     return G
 
@@ -207,6 +235,7 @@ def _db_color(db: str) -> str:
     return {
         "IntAct":   "#4ECDC4",
         "SIGNOR":   "#45B7D1",
+        "STRING":   "#B39DDB",
         "Reactome": "#FFB347",
         "BioGRID":  "#96CEB4",
     }.get(db, "#DDD")
