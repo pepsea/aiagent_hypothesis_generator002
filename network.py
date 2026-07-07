@@ -347,8 +347,13 @@ def network_summary_for_llm(
     enrichment: dict,
     max_partners: int = 10,
     max_terms: int = 15,
+    partner_functions: dict | None = None,
 ) -> str:
-    """LLM プロンプト用のネットワーク・エンリッチメントサマリーを返す。"""
+    """LLM プロンプト用のネットワーク・エンリッチメントサマリーを返す。
+
+    partner_functions: {GENE(upper): {"protein_name","function"}} を渡すと
+        各 PPI パートナーの UniProt 機能情報を仮説生成コンテキストに含める。
+    """
     if G is None:
         return ""
 
@@ -362,6 +367,20 @@ def network_summary_for_llm(
         f"- Nodes: {n_nodes}, Edges: {n_edges}",
         f"- Key interactors: {', '.join(partners)}",
     ]
+
+    # PPI パートナーの UniProt 機能情報
+    if partner_functions:
+        lines.append("\n## PPI Partner Functions (UniProt)")
+        for p in partners:
+            info = partner_functions.get(p.upper())
+            if not info or not info.get("function"):
+                continue
+            pname = info.get("protein_name", "")
+            func = info["function"]
+            if len(func) > 400:
+                func = func[:400].rsplit(" ", 1)[0] + " ..."
+            label = f"{p} ({pname})" if pname else p
+            lines.append(f"- **{label}**: {func}")
 
     results = (enrichment or {}).get("results", [])[:max_terms]
     if results:

@@ -416,7 +416,17 @@ def analyze():
             # ── 3. LLM context ────────────────────────────────────────────────
             context = aggregator.build_llm_context(evidence, config=None)
             if ppi_graph:
-                context += "\n\n" + net.network_summary_for_llm(ppi_graph, gene, enrichment)
+                partners_for_fn = net.rank_partners(ppi_graph, gene.upper())[:10]
+                partner_fns = {}
+                if partners_for_fn:
+                    send("progress", gene=gene, step="ppi",
+                         message="PPIパートナーのUniProt機能情報を取得中...")
+                    try:
+                        partner_fns = uniprot.get_functions_for_genes(partners_for_fn)
+                    except Exception:
+                        partner_fns = {}
+                context += "\n\n" + net.network_summary_for_llm(
+                    ppi_graph, gene, enrichment, partner_functions=partner_fns)
 
             # ── 4. Hypothesis streaming ───────────────────────────────────────
             send("progress", gene=gene, step="llm", message="仮説生成中...")

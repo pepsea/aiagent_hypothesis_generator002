@@ -18,6 +18,7 @@ import aggregator
 import network as net
 import hypothesis as hyp
 import report
+from collectors import uniprot
 
 REPORTS_DIR = Path("reports")
 
@@ -53,7 +54,10 @@ def process_gene(
     # 4. LLM コンテキスト
     context = aggregator.build_llm_context(evidence, config=context_config)
     if ppi_graph:
-        context += "\n\n" + net.network_summary_for_llm(ppi_graph, gene, enrichment)
+        partners = net.rank_partners(ppi_graph, gene.upper())[:10]
+        partner_fns = uniprot.get_functions_for_genes(partners) if partners else {}
+        context += "\n\n" + net.network_summary_for_llm(
+            ppi_graph, gene, enrichment, partner_functions=partner_fns)
     log(f"  コンテキスト: {len(context):,} 文字")
 
     # 5. 仮説生成（ストリーミング表示）
