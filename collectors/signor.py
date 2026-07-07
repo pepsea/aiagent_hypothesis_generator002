@@ -56,9 +56,14 @@ def get_interactions(gene_symbol: str) -> list[dict]:
         if entity_a != gene_upper and entity_b != gene_upper:
             continue
 
-        # タンパク質 or 複合体のみ
-        if parts[1].strip() not in ("protein", "complex") and \
-           parts[5].strip() not in ("protein", "complex"):
+        type_a = parts[1].strip()
+        type_b = parts[5].strip()
+        # パートナー側の型（相手が gene 側でない方）
+        partner_type = type_b if entity_a == gene_upper else type_a
+
+        # パートナーが protein / complex 以外（chemical, phenotype 等）は除外
+        # → エンリッチメントに医薬品・プロセス名が混入するのを防ぐ
+        if partner_type not in ("protein", "complex"):
             continue
 
         partner    = parts[4].strip() if entity_a == gene_upper else parts[0].strip()
@@ -78,6 +83,7 @@ def get_interactions(gene_symbol: str) -> list[dict]:
             "source":    gene_symbol if entity_a == gene_upper else partner,
             "target":    partner if entity_a == gene_upper else gene_symbol,
             "partner":   partner,
+            "partner_type": "gene" if partner_type == "protein" else partner_type,
             "direction": direction,
             "effect":    effect,
             "mechanism": mechanism,

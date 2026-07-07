@@ -61,28 +61,34 @@ def build_ppi_network(
         except (TypeError, ValueError):
             score = None
 
+        ptype = (item.get("partner_type") or "gene").strip().lower()
         out = []
         src = (item.get("source") or "").strip().upper()
         tgt = (item.get("target") or "").strip().upper()
         if src and tgt:
             partner = tgt if src == center else src
             if partner and partner != center:
-                out.append((partner, score))
+                out.append((partner, score, ptype))
         for p in item.get("partners", []) or []:
             p = str(p).strip().upper()
             if p and p != center:
-                out.append((p, score))
+                out.append((p, score, ptype))
         return out
 
     def add_edges(interactions: list[dict], source_label: str):
         for item in interactions:
-            for partner, score in _item_partners(item):
+            for partner, score, ptype in _item_partners(item):
                 # ノード追加
                 if partner not in G:
                     G.add_node(partner, color=_db_color(source_label),
-                               size=15, db=source_label, direct_partner=True)
-                elif source_label not in G.nodes[partner].get("db", ""):
-                    G.nodes[partner]["db"] += f",{source_label}"
+                               size=15, db=source_label, direct_partner=True,
+                               entity_type=ptype)
+                else:
+                    if source_label not in G.nodes[partner].get("db", ""):
+                        G.nodes[partner]["db"] += f",{source_label}"
+                    # いずれかのソースで gene と判定されれば gene を優先
+                    if ptype == "gene":
+                        G.nodes[partner]["entity_type"] = "gene"
 
                 # エッジ追加 or 属性更新
                 if G.has_edge(center, partner):
@@ -201,7 +207,13 @@ def run_network_enrichment(
     if G is None:
         return {}
 
-    gene_list = [n for n in G.nodes if n]
+    # 遺伝子/タンパク質ノードのみを対象にする（化合物・phenotype 等を除外）
+    # entity_type が無い中心ノード等は gene とみなす
+    gene_list = [n for n in G.nodes
+                 if n and G.nodes[n].get("entity_type", "gene") == "gene"]
+    excluded = [n for n in G.nodes if n and G.nodes[n].get("entity_type", "gene") != "gene"]
+    if excluded:
+        print(f"  エンリッチメント除外（非遺伝子）: {', '.join(excluded)}")
     print(f"  エンリッチメント対象: {len(gene_list)} 遺伝子")
 
     results = enrich_mod.run_enrichment(gene_list, top_n=top_n)

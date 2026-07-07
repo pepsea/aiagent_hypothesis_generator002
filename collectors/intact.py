@@ -59,16 +59,21 @@ def get_interactions(gene_symbol: str, species: int = 9606, max_results: int = 2
     for item in data.get("content", []):
         mol_a = (item.get("moleculeA") or "").strip()
         mol_b = (item.get("moleculeB") or "").strip()
+        type_a = (item.get("typeA") or "").strip().lower()
+        type_b = (item.get("typeB") or "").strip().lower()
 
-        # 相手分子（クエリ遺伝子でない方）を取得
+        # 相手分子（クエリ遺伝子でない方）と、その型を取得
         if mol_a.upper() == center:
-            partner = mol_b
+            partner, partner_type = mol_b, type_b
         elif mol_b.upper() == center:
-            partner = mol_a
+            partner, partner_type = mol_a, type_a
         else:
             # intactName でフォールバック
             name_a = (item.get("intactNameA") or "").upper()
-            partner = mol_b if center in name_a else mol_a
+            if center in name_a:
+                partner, partner_type = mol_b, type_b
+            else:
+                partner, partner_type = mol_a, type_a
 
         if not partner:
             continue
@@ -78,6 +83,8 @@ def get_interactions(gene_symbol: str, species: int = 9606, max_results: int = 2
         interactions.append({
             "interaction_id":  item.get("ac", ""),
             "partners":        [partner],
+            # protein/peptide は遺伝子、small molecule 等はそれ以外として区別
+            "partner_type":    "gene" if partner_type in ("protein", "peptide") else (partner_type or "unknown"),
             "detection_method": item.get("detectionMethod", ""),
             "interaction_type": item.get("type", ""),
             "confidence":      item.get("intactMiscore"),
