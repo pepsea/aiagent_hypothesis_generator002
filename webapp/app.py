@@ -269,9 +269,9 @@ def _collector_data(key: str, result) -> dict | None:
                      "mechanism": ix.get("mechanism", ""),
                      "direction": ix.get("direction", ""),
                      "score": ix.get("score"),
-                     "pmid": ix.get("pmid", ""),
                      "function": ix.get("partner_function", ""),
-                     "protein_name": ix.get("partner_protein_name", "")} for ix in result[:30]]
+                     "protein_name": ix.get("partner_protein_name", ""),
+                     "accession": ix.get("partner_accession", "")} for ix in result[:30]]
             return {"interactions": rows}
         if key == "gwas" and isinstance(result, list):
             return {"hits": [{"trait": h.get("trait", ""),
@@ -523,6 +523,7 @@ def analyze():
                         if info:
                             ix["partner_function"] = info.get("function", "")
                             ix["partner_protein_name"] = info.get("protein_name", "")
+                            ix["partner_accession"] = info.get("accession", "")
                     send("collector_done", gene=gene, source=src, ok=True,
                          summary=_collector_summary(src, raw, None),
                          data=_collector_data(src, raw))

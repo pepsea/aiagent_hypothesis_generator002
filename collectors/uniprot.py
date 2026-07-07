@@ -93,7 +93,7 @@ def get_functions_for_genes(gene_symbols: list[str]) -> dict[str, dict]:
     """複数遺伝子の機能情報を1回のバッチクエリで取得する（PPIパートナー用）。
 
     Returns:
-        {GENE_SYMBOL(upper): {"protein_name", "function"}}
+        {GENE_SYMBOL(upper): {"protein_name", "function", "accession"}}
     """
     genes = [g for g in dict.fromkeys(g.strip() for g in gene_symbols) if g]
     if not genes:
@@ -126,5 +126,6 @@ def get_functions_for_genes(gene_symbols: list[str]) -> dict[str, dict]:
         out[sym] = {
             "protein_name": protein_name,
             "function": _first_function_text(entry),
+            "accession": entry.get("primaryAccession", ""),
         }
     return out

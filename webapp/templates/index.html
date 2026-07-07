@@ -1033,19 +1033,29 @@ function renderDataDetail(source, data) {
       const rows = data.interactions.map(d => {
         const func = d.function || "";
         const funcShort = func.length > 90 ? func.slice(0, 90) + "…" : func;
-        const pname = d.protein_name ? `<div style="font-weight:600;">${esc(d.protein_name)}</div>` : "";
+        // 遺伝子シンボル → NCBI Gene リンク
+        const geneLink = d.partner
+          ? `<a href="https://www.ncbi.nlm.nih.gov/gene/?term=${encodeURIComponent(d.partner)}+AND+human[orgn]" target="_blank">${esc(d.partner)}</a>`
+          : "—";
+        // タンパク質名 → UniProt リンク（accession があれば直接、無ければ検索）
+        let proteinLink = "";
+        if (d.protein_name) {
+          const uniprotUrl = d.accession
+            ? `https://www.uniprot.org/uniprotkb/${encodeURIComponent(d.accession)}`
+            : `https://www.uniprot.org/uniprotkb?query=${encodeURIComponent(d.partner||"")}+AND+organism_id:9606`;
+          proteinLink = `<div style="font-weight:600;"><a href="${uniprotUrl}" target="_blank">${esc(d.protein_name)}</a></div>`;
+        }
         return `<tr>
-        <td style="font-family:monospace;font-weight:600;vertical-align:top;">${esc(d.partner)}</td>
+        <td style="font-family:monospace;font-weight:600;vertical-align:top;">${geneLink}</td>
         <td style="vertical-align:top;">${esc(d.effect||"")}</td>
         <td style="font-size:11px;vertical-align:top;">${esc(d.mechanism||"")}</td>
         <td style="text-align:center;vertical-align:top;">${esc(d.direction||"")}</td>
         <td class="pval" style="vertical-align:top;">${d.score != null ? (+d.score).toFixed(3) : "—"}</td>
-        <td style="vertical-align:top;">${d.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(d.pmid)}" target="_blank">${esc(d.pmid)}</a>` : "—"}</td>
-        <td style="font-size:11px;color:var(--text-sub);max-width:260px;" title="${esc(func)}">${pname}${esc(funcShort)}</td>
+        <td style="font-size:11px;color:var(--text-sub);max-width:260px;" title="${esc(func)}">${proteinLink}${esc(funcShort)}</td>
       </tr>`;
       }).join("");
       return rows
-        ? `<table class="data-table"><thead><tr><th>パートナー</th><th>効果</th><th>機序</th><th>方向</th><th>score</th><th>PMID</th><th>タンパク質機能 (UniProt)</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table class="data-table"><thead><tr><th>パートナー</th><th>効果</th><th>機序</th><th>方向</th><th>score</th><th>タンパク質機能 (UniProt)</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "dgidb" && data && data.interactions) {
