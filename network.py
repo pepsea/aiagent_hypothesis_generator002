@@ -179,6 +179,10 @@ def build_ppi_network(
                     if score is not None:
                         prev = ed.get("score")
                         ed["score"] = score if prev is None else max(prev, score)
+                        # DB 別スコアも別途保持（優先順位付き代表スコア計算用）
+                        db_scores = ed.setdefault("db_scores", {})
+                        prev_db = db_scores.get(source_label)
+                        db_scores[source_label] = score if prev_db is None else max(prev_db, score)
                 else:
                     G.add_edge(center, partner,
                                weight=1,
@@ -186,7 +190,8 @@ def build_ppi_network(
                                mechanism=item.get("mechanism", ""),
                                db=source_label,
                                dbs={source_label},
-                               score=score)
+                               score=score,
+                               db_scores=({source_label: score} if score is not None else {}))
 
     # --- IntAct（任意） ---
     if use_intact:
@@ -288,11 +293,32 @@ def _db_color(db: str) -> str:
 
 
 def _n_distinct_dbs(edge: dict) -> int:
-    """エッジが何種類のDBで裏付けられているか。"""
+    """エッジが何種類のDBで裏付けられているか（再現性の指標）。"""
     dbs = edge.get("dbs")
     if not dbs:
         dbs = {d for d in (edge.get("db", "") or "").split(",") if d}
     return len(dbs)
+
+
+# DB 間で優先するスコアの順位。複数 DB が同じパートナーを支持する場合、
+# この順で最初に見つかった DB 固有スコアを「代表スコア」として採用する。
+DB_SCORE_PRIORITY = ["SIGNOR", "BioGRID", "STRING"]
+
+
+def _representative_score(edge: dict) -> float:
+    """DB_SCORE_PRIORITY の順で DB 固有スコアを探し、代表スコアを返す。
+
+    どの DB にも固有スコアが無い場合は、エッジ全体の score
+    （スコア未提供時は接続数の逆数で補完済み、全 DB 共通のフォールバック）
+    にフォールバックする。
+    """
+    db_scores = edge.get("db_scores") or {}
+    for db in DB_SCORE_PRIORITY:
+        s = db_scores.get(db)
+        if s is not None:
+            return s
+    fallback = edge.get("score")
+    return fallback if fallback is not None else -1.0
 
 
 def rank_partners(
@@ -305,8 +331,11 @@ def rank_partners(
     """PPIパートナーを優先度順に並べて返す。
 
     優先順位（降順）:
-      1. 複数DBで共通する遺伝子（裏付けDB数が多いほど上位）
-      2. スコアが高いもの（IntAct intactScore / SIGNOR score など）
+      1. 複数DBで共通する遺伝子（裏付けDB数が多いほど上位＝再現性）
+      2. 代表スコア: DB_SCORE_PRIORITY（SIGNOR > BioGRID > STRING）の順で
+         最初に見つかった DB 固有スコアを採用。どの DB にも固有スコアが
+         無ければ、接続数の逆数（全 DB 共通のフォールバック、ハブ判定と
+         同じ IntAct 実測値ベース）を使う。
       3. エッジの重み（観測された相互作用の回数）
 
     exclude_hubs: True の場合、ハブ遺伝子（既知の非特異ハブ族、または
@@ -321,9 +350,8 @@ def rank_partners(
     """
     def key(n):
         ed = G.edges[center, n]
-        n_db  = _n_distinct_dbs(ed)
-        score = ed.get("score")
-        score = score if score is not None else -1.0
+        n_db   = _n_distinct_dbs(ed)
+        score  = _representative_score(ed)
         weight = ed.get("weight", 1)
         return (n_db, score, weight)
 
