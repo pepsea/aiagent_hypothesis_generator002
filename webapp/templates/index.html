@@ -930,6 +930,10 @@ function renderDataDetail(source, data) {
         </div>`).join("");
     }
     if (source === "opentargets" && data) {
+      const otLinks = [];
+      if (data.ensembl_id) otLinks.push(`<a href="https://platform.opentargets.org/target/${esc(data.ensembl_id)}" target="_blank">🔗 Target を OpenTargets で見る</a>`);
+      if (data.disease_id) otLinks.push(`<a href="https://platform.opentargets.org/disease/${esc(data.disease_id)}" target="_blank">🔗 Disease を OpenTargets で見る</a>`);
+      const otLinkHtml = otLinks.length ? `<div style="margin-bottom:10px;font-size:12px;">${otLinks.join(" ｜ ")}</div>` : "";
       const dt = data.datatype_scores || {};
       const scoreRows = Object.entries(dt).map(([k,v]) =>
         `<tr><td>${esc(k)}</td><td><div style="background:#dbeafe;width:${Math.round(v*100)}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${(+v).toFixed(3)}</td></tr>`
@@ -955,7 +959,7 @@ function renderDataDetail(source, data) {
         </tr>`;
       }).join("");
       const disHead = DT_COLS.map(c => `<th style="text-align:center;font-size:10px;">${DT_LABEL[c]}</th>`).join("");
-      return `<div class="metric-row">
+      return `${otLinkHtml}<div class="metric-row">
         <div class="metric"><div class="metric-val">${(+(data.association_score||0)).toFixed(3)}</div><div class="metric-label">Total Score</div></div>
         <div class="metric"><div class="metric-val">${(+(data.genetic_score||0)).toFixed(3)}</div><div class="metric-label">Genetic Score</div></div>
       </div>
@@ -969,34 +973,54 @@ function renderDataDetail(source, data) {
     if (source === "uniprot" && data) {
       const go = (data.go_terms||[]).map(g=>`<li>${esc(g)}</li>`).join("");
       const loc = (data.subcellular_location||[]).join(", ");
-      return `<div style="margin-bottom:10px;"><strong>${esc(data.protein_name||"")}</strong></div>
+      const link = data.accession
+        ? `<div style="margin-bottom:8px;font-size:12px;"><a href="https://www.uniprot.org/uniprotkb/${esc(data.accession)}" target="_blank">🔗 UniProt (${esc(data.accession)}) で見る</a></div>`
+        : "";
+      return `${link}<div style="margin-bottom:10px;"><strong>${esc(data.protein_name||"")}</strong></div>
         ${data.function ? `<div class="abstract-text" style="margin-bottom:10px;">${esc(data.function)}</div>` : ""}
         ${loc ? `<div style="font-size:12px;margin-bottom:6px;"><strong>局在:</strong> ${esc(loc)}</div>` : ""}
         ${go ? `<div class="data-section-title">GO Terms</div><ul style="font-size:12px;padding-left:18px;">${go}</ul>` : ""}`;
     }
     if (source === "gwas" && data.hits) {
-      const rows = data.hits.map(h => `<tr>
-        <td>${esc(h.trait)}</td><td><code>${esc(h.variant)}</code></td>
-        <td class="pval">${h.pvalue}</td><td>${h.beta||""}</td></tr>`).join("");
+      const rows = data.hits.map(h => {
+        const rsids = h.rsids || [];
+        const variantHtml = rsids.length
+          ? rsids.map(rs => `<a href="https://www.ncbi.nlm.nih.gov/snp/${esc(rs)}" target="_blank"><code>${esc(rs)}</code></a>`).join(", ")
+          : esc(h.variant);
+        return `<tr>
+        <td>${esc(h.trait)}</td><td>${variantHtml}</td>
+        <td class="pval">${h.pvalue}</td><td>${h.beta||""}</td></tr>`;
+      }).join("");
       return `<table class="data-table"><thead><tr><th>形質</th><th>バリアント</th><th>p値</th><th>Beta</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "clinvar" && data.variants) {
-      const rows = data.variants.map(v => `<tr>
-        <td>${esc(v.name)}</td><td>${esc(v.significance)}</td><td>${esc(v.condition)}</td>
-        <td style="font-size:11px;color:var(--text-sub);">${esc(v.review||"")}</td></tr>`).join("");
+      const rows = data.variants.map(v => {
+        const nameHtml = v.variant_id
+          ? `<a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/${esc(v.variant_id)}/" target="_blank">${esc(v.name)}</a>`
+          : esc(v.name);
+        return `<tr>
+        <td>${nameHtml}</td><td>${esc(v.significance)}</td><td>${esc(v.condition)}</td>
+        <td style="font-size:11px;color:var(--text-sub);">${esc(v.review||"")}</td></tr>`;
+      }).join("");
       return `<table class="data-table"><thead><tr><th>バリアント</th><th>臨床的意義</th><th>疾患</th><th>レビュー状況</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "chembl" && data.drugs) {
       if (!data.drugs.length) return '<span style="color:var(--text-sub);font-size:13px;">承認薬・臨床候補なし（ChEMBL）</span>';
-      const rows = data.drugs.map(d => `<tr>
-        <td style="font-family:monospace;font-weight:600;">${esc(d.name)}</td>
+      const rows = data.drugs.map(d => {
+        const nameHtml = d.chembl_id
+          ? `<a href="https://www.ebi.ac.uk/chembl/explore/compound/${esc(d.chembl_id)}" target="_blank">${esc(d.name)}</a>`
+          : esc(d.name);
+        return `<tr>
+        <td style="font-family:monospace;font-weight:600;">${nameHtml}</td>
         <td><span class="badge">Phase ${d.phase!=null?d.phase:"?"}</span></td>
-        <td>${esc(d.mechanism)}</td><td>${esc(d.type||"")}</td></tr>`).join("");
+        <td>${esc(d.mechanism)}</td><td>${esc(d.type||"")}</td></tr>`;
+      }).join("");
       return `<table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th><th>種別</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "gnomad") {
       const fmt = v => (typeof v === "number") ? v.toPrecision(3) : (v ?? "N/A");
-      return `<div class="metric-row">
+      const link = data.url ? `<div style="margin-bottom:8px;font-size:12px;"><a href="${esc(data.url)}" target="_blank">🔗 gnomAD で見る</a></div>` : "";
+      return `${link}<div class="metric-row">
         <div class="metric"><div class="metric-val">${fmt(data.pli)}</div><div class="metric-label">pLI</div></div>
         <div class="metric"><div class="metric-val">${fmt(data.loeuf)}</div><div class="metric-label">LOEUF</div></div>
         <div class="metric"><div class="metric-val">${fmt(data.lof_z)}</div><div class="metric-label">LoF Z</div></div>
@@ -1014,7 +1038,8 @@ function renderDataDetail(source, data) {
               <span style="margin-left:6px;">${(+t.tpm).toFixed(1)} TPM</span></td></tr>`;
       }).join("");
       const keyRows = (data.key_tissues||[]).filter(t=>t.tpm>0).map(t=>`<tr><td>${esc(t.tissue)}</td><td>${(+t.tpm).toFixed(1)} TPM</td></tr>`).join("");
-      return `<div class="data-section-title">全組織 Top ${tissues.length}</div>
+      const link = data.url ? `<div style="margin-bottom:8px;font-size:12px;"><a href="${esc(data.url)}" target="_blank">🔗 GTEx Portal で見る</a></div>` : "";
+      return `${link}<div class="data-section-title">全組織 Top ${tissues.length}</div>
         <table class="data-table"><thead><tr><th>組織</th><th>発現量</th></tr></thead><tbody>${rows}</tbody></table>
         ${keyRows?`<div class="data-section-title" style="margin-top:12px;">安全性関連組織</div>
         <table class="data-table"><thead><tr><th>組織</th><th>TPM</th></tr></thead><tbody>${keyRows}</tbody></table>`:""}`;
@@ -1023,16 +1048,22 @@ function renderDataDetail(source, data) {
       const loc = (data.subcellular||[]).join(", ");
       const rnaRows = (data.tissues||[]).map(t=>`<tr><td>${esc(t.tissue||"")}</td><td>${esc(t.level||"")}</td></tr>`).join("");
       const protRows = (data.protein_tissue||[]).map(t=>`<tr><td>${esc(t.tissue||"")}</td><td>${esc(t.level||"")}</td></tr>`).join("");
-      return `${loc?`<div style="font-size:12px;margin-bottom:10px;"><strong>細胞内局在:</strong> ${esc(loc)}</div>`:""}
+      const link = data.url ? `<div style="margin-bottom:8px;font-size:12px;"><a href="${esc(data.url)}" target="_blank">🔗 Human Protein Atlas で見る</a></div>` : "";
+      return `${link}${loc?`<div style="font-size:12px;margin-bottom:10px;"><strong>細胞内局在:</strong> ${esc(loc)}</div>`:""}
         ${rnaRows?`<div class="data-section-title">RNA 発現 (nTPM)</div>
         <table class="data-table"><thead><tr><th>組織</th><th>発現量</th></tr></thead><tbody>${rnaRows}</tbody></table>`:""}
         ${protRows?`<div class="data-section-title" style="margin-top:10px;">タンパク質発現 (intensity)</div>
         <table class="data-table"><thead><tr><th>組織</th><th>強度</th></tr></thead><tbody>${protRows}</tbody></table>`:""}`;
     }
     if (source === "clinicaltrials" && data.trials) {
-      const rows = data.trials.map(t=>`<tr><td>${esc(t.title)}</td>
+      const rows = data.trials.map(t=>{
+        const titleHtml = t.url
+          ? `<a href="${esc(t.url)}" target="_blank">${esc(t.title)}</a>`
+          : (t.nct_id ? `<a href="https://clinicaltrials.gov/study/${esc(t.nct_id)}" target="_blank">${esc(t.title)}</a>` : esc(t.title));
+        return `<tr><td>${titleHtml}</td>
         <td><span class="badge">${esc(t.phase||"N/A")}</span></td>
-        <td>${esc(t.status)}</td></tr>`).join("");
+        <td>${esc(t.status)}</td></tr>`;
+      }).join("");
       return `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "alphafold") {
@@ -1085,10 +1116,16 @@ function renderDataDetail(source, data) {
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "dgidb" && data && data.interactions) {
-      const rows = data.interactions.map(d=>`<tr><td style="font-family:monospace;">${esc(d.drug)}</td>
-        <td>${esc(d.type)}</td></tr>`).join("");
+      const rows = data.interactions.map(d=>{
+        const drugLink = `<a href="https://dgidb.org/results?searchType=drug&searchTerms=${encodeURIComponent(d.drug||"")}" target="_blank">${esc(d.drug)}</a>`;
+        const approvedBadge = d.approved ? '<span class="badge">承認薬</span>' : '';
+        const sources = (d.sources||[]).join(", ");
+        return `<tr><td style="font-family:monospace;">${drugLink} ${approvedBadge}</td>
+        <td>${esc(d.type) || '<span style="color:var(--text-sub)">不明</span>'}</td>
+        <td style="font-size:11px;color:var(--text-sub);">${esc(sources)}</td></tr>`;
+      }).join("");
       return rows
-        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th><th>ソース</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "reactome" && data.pathways) {
@@ -1099,10 +1136,15 @@ function renderDataDetail(source, data) {
       return `<table class="data-table"><thead><tr><th>パスウェイ</th><th>ID</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "toxicity") {
+      const assayLinks = (data.sample_assay_ids||[]).map(id =>
+        `<a href="https://pubchem.ncbi.nlm.nih.gov/bioassay/${esc(id)}" target="_blank">${esc(id)}</a>`).join(", ");
+      const geneUrl = data.gene ? `https://pubchem.ncbi.nlm.nih.gov/gene/${encodeURIComponent(data.gene)}/human` : "";
       return `<div class="metric-row">
-        <div class="metric"><div class="metric-val">${esc(data.overall_risk||"N/A")}</div><div class="metric-label">総合リスク</div></div>
+        <div class="metric"><div class="metric-val">${esc(data.assay_count||0)}</div><div class="metric-label">PubChem BioAssay 件数</div></div>
       </div>
-      <div style="font-size:12px;">${esc(data.summary||"")}</div>`;
+      ${geneUrl ? `<div style="margin:8px 0;font-size:12px;"><a href="${esc(geneUrl)}" target="_blank">🔗 PubChem で ${esc(data.gene)} を見る</a></div>` : ""}
+      ${assayLinks ? `<div style="font-size:12px;margin-top:6px;"><strong>サンプル Assay ID:</strong> ${assayLinks}</div>` : ""}
+      <div style="font-size:12px;color:var(--text-sub);margin-top:8px;">${esc(data.toxcast_note||"")}</div>`;
     }
   } catch(e) {}
   return `<pre style="font-size:11px;overflow:auto;">${esc(JSON.stringify(data,null,2))}</pre>`;

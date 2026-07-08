@@ -250,6 +250,8 @@ def _collector_data(key: str, result) -> dict | None:
             drugs = result.get("known_drugs") or []
             assoc_dis = result.get("associated_diseases") or []
             return {
+                "ensembl_id": result.get("ensembl_id", ""),
+                "disease_id": result.get("disease_id", ""),
                 "association_score": result.get("association_score"),
                 "datatype_scores": dt,
                 "genetic_score": dt.get("genetic_association") or dt.get("genetic_literature"),
@@ -272,7 +274,8 @@ def _collector_data(key: str, result) -> dict | None:
                     go_terms.append(g.get("term", g.get("id", "")))
                 else:
                     go_terms.append(str(g))
-            return {"protein_name": result.get("protein_name", ""),
+            return {"accession": result.get("accession", ""),
+                    "protein_name": result.get("protein_name", ""),
                     "function": (result.get("function", "") or "")[:500],
                     "subcellular_location": result.get("subcellular_location", [])[:8],
                     "protein_class": result.get("protein_class", []),
@@ -302,16 +305,19 @@ def _collector_data(key: str, result) -> dict | None:
             return {"hits": [{"trait": h.get("trait", ""),
                                "pvalue": h.get("p_value", ""),
                                "variant": ", ".join(h.get("snps", [])),
+                               "rsids": h.get("snps", []),
                                "beta": h.get("or_beta", "")}
                               for h in result[:10]]}
         if key == "clinvar" and isinstance(result, list):
             return {"variants": [{"name": v.get("title", "") or v.get("variant_id", ""),
+                                   "variant_id": v.get("variant_id", ""),
                                    "significance": v.get("clinical_significance", "") or "—",
                                    "condition": v.get("condition", "") or "—",
                                    "review": v.get("review_status", "")}
                                   for v in result[:100]]}
         if key == "chembl" and isinstance(result, list):
             return {"drugs": [{"name": d.get("name", "") or d.get("chembl_id", ""),
+                                "chembl_id": d.get("chembl_id", ""),
                                 "phase": d.get("max_phase", ""),
                                 "mechanism": d.get("mechanism", ""),
                                 "type": d.get("molecule_type", "")} for d in result[:10]]}
@@ -325,18 +331,29 @@ def _collector_data(key: str, result) -> dict | None:
                     "url": result.get("url", "")}
         if key == "gtex" and isinstance(result, dict) and "top_tissues" in result:
             return {"tissues": result.get("top_tissues", [])[:10],
-                    "key_tissues": result.get("key_tissues", [])}
+                    "key_tissues": result.get("key_tissues", []),
+                    "url": result.get("url", "")}
         if key == "hpa" and isinstance(result, dict):
             tissues = result.get("tissue_expression", [])
             return {"subcellular": result.get("subcellular", []),
                     "protein_tissue": result.get("protein_tissue", []),
-                    "tissues": tissues[:15]}
+                    "tissues": tissues[:15],
+                    "url": result.get("url", "")}
         if key == "dgidb" and isinstance(result, list):
-            return {"interactions": [{"drug": d.get("drug_name", ""),
-                                       "type": d.get("interaction_type", "")} for d in result[:10]]}
+            return {"interactions": [{
+                        "drug": d.get("drug_name", ""),
+                        # interactionTypes が空の DGIdb レコードが多いため
+                        # directionality → sources の順にフォールバックして表示する
+                        "type": (d.get("interaction_type") or d.get("directionality") or ""),
+                        "approved": d.get("approved", False),
+                        "sources": d.get("sources", []),
+                        "pmids": d.get("pmids", []),
+                    } for d in result[:15]]}
         if key == "clinicaltrials" and isinstance(result, list):
             return {"trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
-                                 "status": t.get("status", "")} for t in result[:8]]}
+                                 "status": t.get("status", ""),
+                                 "nct_id": t.get("nct_id", ""),
+                                 "url": t.get("url", "")} for t in result[:8]]}
         if key == "alphafold" and isinstance(result, dict):
             return {"plddt": result.get("mean_plddt", result.get("plddt")),
                     "confidence": result.get("confidence", ""),
@@ -348,7 +365,14 @@ def _collector_data(key: str, result) -> dict | None:
                                    "id": p.get("pathway_id", ""),
                                    "is_disease": p.get("is_disease", False)} for p in result[:15]]}
         if key == "toxicity" and isinstance(result, dict):
-            return result
+            pb = result.get("pubchem_bioassay") or {}
+            return {
+                "gene": pb.get("gene", ""),
+                "assay_count": pb.get("assay_count", 0),
+                "sample_assay_ids": pb.get("sample_assay_ids", []),
+                "drug_adverse_events": result.get("drug_adverse_events", {}),
+                "toxcast_note": result.get("toxcast_note", ""),
+            }
     except Exception:
         pass
     return None
