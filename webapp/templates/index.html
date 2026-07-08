@@ -526,30 +526,49 @@ function startAnalysis() {
       model, lang, job_id: currentJobId,
       ppi: collectPpiConfig()
     })
-  }).then(resp => {
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    function read() {
-      reader.read().then(({ done, value }) => {
-        if (done) { onBatchFinished(); return; }
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop();
-        lines.forEach(line => {
-          if (line.startsWith("data: ")) {
-            try { handleEvent(JSON.parse(line.slice(6))); } catch {}
-          }
-        });
-        read();
-      }).catch(() => onBatchFinished());
+  }).then(resp => readAnalyzeStream(resp.body.getReader()))
+    .catch(e => {
+      if (e.name === "AbortError") { logMsg("停止しました", "err"); }
+      else { logMsg(`エラー: ${e.message}`, "err"); console.error(e); }
+      onBatchFinished();
+    });
+}
+
+// SSE ストリームを読み続ける。旧実装は read().then(cb).catch(h) を再帰呼び出し
+// していたため、cb 内（イベント処理・decode 等）で例外が起きるとその回の h が
+// 発火し、ストリームがまだ継続中でも「完了」扱いで UI がリセットされていた
+// （停止ボタンが消え解析開始ボタンが再度押せる状態に戻る）。
+// while ループ + 単一の try/catch/finally にまとめ、個々のイベントの
+// パースエラーはループを止めずログに残すだけにする。
+async function readAnalyzeStream(reader) {
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          handleEvent(JSON.parse(line.slice(6)));
+        } catch (e) {
+          console.error("SSE イベント処理エラー:", e, line);
+        }
+      }
     }
-    read();
-  }).catch(e => {
-    if (e.name === "AbortError") { logMsg("停止しました", "err"); }
-    else { logMsg(`エラー: ${e.message}`, "err"); }
+  } catch (e) {
+    if (e.name === "AbortError") {
+      logMsg("停止しました", "err");
+    } else {
+      console.error("SSE 読み取りエラー:", e);
+      logMsg(`ストリームエラー: ${e.message}`, "err");
+    }
+  } finally {
     onBatchFinished();
-  });
+  }
 }
 
 function stopAnalysis() {
