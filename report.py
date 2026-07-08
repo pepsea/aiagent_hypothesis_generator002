@@ -5,7 +5,55 @@
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
+
+
+# ──────────────────────────────────────────────────────────────
+# References（サーバー側で確定的に生成する — LLM の自由記述には任せない）
+# ──────────────────────────────────────────────────────────────
+_REF_HEADERS = {
+    "paper":   "### Papers",
+    "disease": "### Disease Databases",
+    "gene":    "### Gene/Protein Databases",
+    "drug":    "### Drug/Safety Databases",
+}
+
+
+def strip_llm_references(hypothesis_text: str) -> str:
+    """LLM が自己流に生成した「## References」以降（日本語含む）を除去する。
+
+    LLM にタグ引用付きで自由記述させると、タグの欠落・リンク省略・書式崩れが
+    起きやすいため、この関数で切り落とし、代わりに references_md() が生成した
+    確定的なセクションに置き換える。
+    """
+    pattern = re.compile(r'\n#{1,3}\s*(References|参考文献)\b.*', re.S | re.I)
+    return pattern.sub('', hypothesis_text).rstrip()
+
+
+def references_md(full_references: dict) -> str:
+    """aggregator.build_llm_context() が生成する
+    aggregated["full_references"] = {cat: [(tag, full_citation, url), ...]}
+    から、リンク付きの Markdown References セクションを組み立てる。
+    """
+    lines = ["## References", ""]
+    has_entries = False
+    for cat, header in _REF_HEADERS.items():
+        entries = full_references.get(cat) or []
+        if not entries:
+            continue
+        has_entries = True
+        lines.append(header)
+        for tag, full, url in entries:
+            if url and url in full:
+                text = full.replace(url, "").strip().rstrip(".")
+                lines.append(f"- {tag} {text}. [🔗リンク]({url})")
+            elif url:
+                lines.append(f"- {tag} {full} [🔗リンク]({url})")
+            else:
+                lines.append(f"- {tag} {full}")
+        lines.append("")
+    return "\n".join(lines) if has_entries else ""
 
 # ──────────────────────────────────────────────────────────────
 # 機能エンリッチメント
@@ -115,13 +163,19 @@ def build_report(
     generated_iso: str,
     ppi_section: str = "",
     enrichment_section: str = "",
+    references_section: str = "",
 ) -> str:
-    """1遺伝子×疾患の完全な Markdown レポートを組み立てて返す。"""
+    """1遺伝子×疾患の完全な Markdown レポートを組み立てて返す。
+
+    references_section が渡された場合、LLM が生成した hypothesis 末尾の
+    自己流「## References」は除去し、こちらのサーバー生成版に差し替える。
+    """
+    hypothesis_clean = strip_llm_references(hypothesis) if references_section else hypothesis
     parts = [
         f"# Drug Discovery Hypothesis: {gene} × {disease}",
         f"Generated: {generated_iso}  |  Language: {lang}",
         "", "---", "",
-        hypothesis, "",
+        hypothesis_clean, "",
     ]
     if ppi_section or enrichment_section:
         parts += ["---", "", "## Supporting Evidence", ""]
@@ -129,6 +183,8 @@ def build_report(
             parts.append(ppi_section)
         if enrichment_section:
             parts.append(enrichment_section)
+    if references_section:
+        parts += ["---", "", references_section, ""]
     parts += ["---", "", "## Evidence Context", "", context]
     return "\n".join(parts)
 

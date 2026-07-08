@@ -105,15 +105,8 @@ Summarise known drugs/candidates for {gene} with phases. Repositioning or combin
 - Alternative hypotheses
 - Major risks
 
----
-
-## References
-List only tags that appear in the evidence context and were cited above:
-
-### Papers
-### Disease Databases
-### Gene/Protein Databases
-### Drug/Safety Databases
+Do NOT write a "## References" section — it is generated automatically
+from the evidence context after your response, with working links.
 """
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -221,15 +214,8 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 - 代替仮説
 - 仮説に対する主要リスク
 
----
-
-## 参考文献
-コンテキスト内に登場し、上記で引用したタグのみ列挙：
-
-### 論文（PubMed）
-### 疾患データベース
-### 遺伝子・タンパク質データベース
-### 薬剤・安全性データベース
+「## 参考文献」セクションは書かないこと — この後、エビデンスコンテキストから
+リンク付きで自動生成される。
 """
 
 def generate_hypothesis(

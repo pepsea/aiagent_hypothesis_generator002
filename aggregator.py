@@ -263,14 +263,18 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     ref_reg: dict[str, list] = {"paper": [], "disease": [], "gene": [], "drug": []}
     ref_cnt: dict[str, int]  = {k: 0 for k in ref_reg}
 
-    def add_ref(category: str, prefix: str, short: str, full: str) -> str:
-        """Register citation, return tag. short = 1-line; full = Vancouver."""
+    def add_ref(category: str, prefix: str, short: str, full: str, url: str = "") -> str:
+        """Register citation, return tag. short = 1-line; full = Vancouver.
+
+        url: リンク可能な一次情報源のURL。References セクションはこれを使い
+             サーバー側で確定的に生成する（LLM 生成には任せない）。
+        """
         if prefix:
             ref_cnt[category] += 1
             tag = f"[{prefix} {ref_cnt[category]}]"
         else:
             tag = f"[{category}]"
-        ref_reg[category].append((tag, short, full))
+        ref_reg[category].append((tag, short, full, url))
         return tag
 
     def _short(author_list, year, journal, pmid="", url="") -> str:
@@ -287,7 +291,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         short = f"UniProt entry {gene} ({uid}). {url}"
         full  = (f"UniProt Consortium. UniProt: the Universal Protein Knowledgebase in 2023. "
                  f"Nucleic Acids Res. 2023;51(D1):D523-D531. Entry: {gene} ({uid}). {url}")
-        ref = add_ref("gene", "UniProt", short, full)
+        ref = add_ref("gene", "UniProt", short, full, url)
         func = _trunc_at_sentence(uni.get("function") or "", cfg["uniprot_chars"])
         kws  = ", ".join(uni.get("keywords", [])[:cfg["uniprot_keywords"]]) or "N/A"
         gos  = "; ".join(g["term"] for g in uni.get("go_terms", [])[:cfg["uniprot_go_terms"]]) or "N/A"
@@ -310,7 +314,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         short = f"OpenTargets {gene}×{disease}. {url}"
         full  = (f"Ochoa D, et al. Open Targets Platform. "
                  f"Nucleic Acids Res. 2021;49(D1):D1302-D1310. {url}")
-        ref = add_ref("disease", "OpenTargets", short, full)
+        ref = add_ref("disease", "OpenTargets", short, full, url)
         score = ot.get("association_score")
         score_str = f"{score:.3f}" if score is not None else "N/A"
         dt_str = " | ".join(f"{k}:{v:.2f}" for k, v in (ot.get("datatype_scores") or {}).items())
@@ -331,7 +335,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             short = f"{auth} et al. GWAS Catalog {sid} {year}. {url}"
             full  = (f"{auth} et al. GWAS Catalog Study {sid}: {h.get('trait','')}. {year}. "
                      f"Buniello A et al. Nucleic Acids Res. 2019;47(D1):D1005-D1012. {url}")
-            ref = add_ref("disease", "GWAS", short, full)
+            ref = add_ref("disease", "GWAS", short, full, url)
             snps = ", ".join(h.get("snps", [])[:2])
             lines.append(f"  - {h['trait']} p={h['p_value']} OR={h['or_beta']} SNPs:{snps} {ref}")
         sections.append(f"## GWAS\n" + "\n".join(lines) + "\n")
@@ -347,7 +351,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             short = f"ClinVar VarID:{vid} {v.get('clinical_significance','')}. {url}"
             full  = (f"Landrum MJ et al. ClinVar. Nucleic Acids Res. 2020;48(D1):D835-D844. "
                      f"Variant: {v.get('title','')[:80]} [VarID:{vid}]. {url}")
-            ref = add_ref("disease", "ClinVar", short, full)
+            ref = add_ref("disease", "ClinVar", short, full, url)
             lines.append(f"  - {v['title'][:65]} | {v['clinical_significance']} | {v['condition']} {ref}")
         sections.append(f"## ClinVar Variants\n" + "\n".join(lines) + "\n")
 
@@ -372,7 +376,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
                      f"Compound: {name}" + (f" ({cid})" if cid else "")
                      + (f" phase:{phase}" if phase else "")
                      + (f" mech:{mech[:80]}" if mech else "") + f". {url}")
-            ref = add_ref("drug", "ChEMBL", short, full)
+            ref = add_ref("drug", "ChEMBL", short, full, url)
             lines.append(f"  - {name} | Ph:{phase} | {mech[:60] or 'N/A'} {ref}")
         sections.append(f"## Drugs targeting {gene}\n" + "\n".join(lines) + "\n")
     else:
@@ -384,7 +388,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = f"https://www.ebi.ac.uk/intact/search?query={gene}"
         short = f"IntAct PPI for {gene}. {url}"
         full  = (f"Orchard S et al. IntAct. Nucleic Acids Res. 2014;42(D1):D358-D363. {url}")
-        ref   = add_ref("gene", "IntAct", short, full)
+        ref   = add_ref("gene", "IntAct", short, full, url)
         partners = list(dict.fromkeys(
             p for ix in interactions[:cfg["max_interactions"]] for p in ix.get("partners", [])
         ))[:cfg["max_interactions"]]
@@ -400,7 +404,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     url = f"https://pubchem.ncbi.nlm.nih.gov/#query={gene}&input_type=gene"
     short = f"PubChem BioAssay {gene}. {url}"
     full  = f"Kim S et al. PubChem 2023. Nucleic Acids Res. 2023;51(D1):D1373-D1380. {url}"
-    ref_pc = add_ref("gene", "PubChem", short, full)
+    ref_pc = add_ref("gene", "PubChem", short, full, url)
     ae_str = "; ".join(
         f"{drug}: " + ", ".join(f"{e['reaction']}({e['count']})" for e in evts[:2])
         for drug, evts in list(ae.items())[:2]
@@ -426,7 +430,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             auth_str = ", ".join(first3) + (", et al" if len(authors) > 3 else "")
             short    = _short(authors, year, journal, pmid, url)
             full     = f"{auth_str}. {title} {journal}. {year}. PMID:{pmid}. {url}"
-            ref = add_ref("paper", "Paper", short, full)
+            ref = add_ref("paper", "Paper", short, full, url)
             snippet = _trunc_at_sentence(abstract, cfg["abstract_chars"]) \
                       if abstract else "(no abstract)"
             paper_blocks.append(
@@ -442,7 +446,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = gnom.get("url", "https://gnomad.broadinstitute.org/")
         short = f"gnomAD {gene} pLI={gnom.get('pLI')} LOEUF={gnom.get('LOEUF')}. {url}"
         full  = (f"Chen S et al. Nature. 2024;625:92-100. {short}")
-        ref   = add_ref("gene", "gnomAD", short, full)
+        ref   = add_ref("gene", "gnomAD", short, full, url)
         sections.append(
             f"## Constraint (gnomAD) {ref}\n"
             f"- pLI:{gnom.get('pLI')} LOEUF:{gnom.get('LOEUF')} "
@@ -455,7 +459,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = gtex_data.get("url", "https://gtexportal.org/")
         short = f"GTEx expression {gene}. {url}"
         full  = f"GTEx Consortium. Science. 2020;369(6509):1318-1330. {short}"
-        ref   = add_ref("gene", "GTEx", short, full)
+        ref   = add_ref("gene", "GTEx", short, full, url)
         top3  = ", ".join(
             f"{t['tissue']}({t['tpm']:.0f})" for t in gtex_data.get("top_tissues", [])[:cfg["gtex_top_n"]]
         )
@@ -473,7 +477,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = hpa_data.get("url", "https://www.proteinatlas.org/")
         short = f"HPA {gene}. {url}"
         full  = f"Uhlén M et al. Science. 2015;347(6220):1260419. {short}"
-        ref   = add_ref("gene", "HPA", short, full)
+        ref   = add_ref("gene", "HPA", short, full, url)
         subcell    = ", ".join(hpa_data.get("subcellular", [])[:4]) or "N/A"
         prot_class = ", ".join(hpa_data.get("protein_class", [])[:3]) or "N/A"
         tissues    = " | ".join(
@@ -492,7 +496,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = f"https://dgidb.org/genes/{gene}#interactions"
         short = f"DGIdb {gene}. {url}"
         full  = f"Cannon M et al. Nucleic Acids Res. 2024;52(D1):D1227-D1235. {short}"
-        ref   = add_ref("drug", "DGIdb", short, full)
+        ref   = add_ref("drug", "DGIdb", short, full, url)
         approved = [d for d in dgi_data if d.get("approved")]
         rows = " | ".join(
             f"{d['drug_name']}({'✓' if d.get('approved') else 'inv'},{d.get('interaction_type','')})"
@@ -509,7 +513,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&intr={gene}"
         short = f"ClinicalTrials {gene}×{disease}. {url}"
         full  = f"ClinicalTrials.gov. U.S. NLM. {short}"
-        ref   = add_ref("disease", "ClinicalTrials", short, full)
+        ref   = add_ref("disease", "ClinicalTrials", short, full, url)
         rows  = " | ".join(
             f"{t['nct_id']}({t['phase']},{t['status'][:8]})"
             for t in ct_data[:cfg["max_trials"]]
@@ -525,7 +529,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = af_data.get("view_url", "https://alphafold.ebi.ac.uk/")
         short = f"AlphaFold {af_data.get('entry_id','')} pLDDT={af_data.get('mean_plddt')}. {url}"
         full  = f"Jumper J et al. Nature. 2021;596:583-589. {short}"
-        ref   = add_ref("gene", "AlphaFold", short, full)
+        ref   = add_ref("gene", "AlphaFold", short, full, url)
         sections.append(
             f"## Structure AlphaFold {ref}\n"
             f"- pLDDT:{af_data.get('mean_plddt')} — {af_data.get('confidence')}\n"
@@ -537,7 +541,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         url   = f"https://reactome.org/content/query?q={gene}&species=Homo+sapiens"
         short = f"Reactome pathways {gene}. {url}"
         full  = f"Milacic M et al. Nucleic Acids Res. 2024;52(D1):D672-D678. {short}"
-        ref   = add_ref("gene", "Reactome", short, full)
+        ref   = add_ref("gene", "Reactome", short, full, url)
         dpw   = [p for p in react_data if p.get("is_disease")]
         names = " | ".join(p["name"] for p in react_data[:cfg["max_reactome"]])
         sections.append(
@@ -557,15 +561,17 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         entries = ref_reg.get(cat, [])
         if entries:
             ref_lines.append(header)
-            for tag, short, _ in entries:
+            for tag, short, _full, _url in entries:
                 ref_lines.append(f"{tag} {short}")
             ref_lines.append("")
 
     sections.append("\n".join(ref_lines))
 
-    # 完全引用を別フィールドに保存（レポート保存時に使用）
+    # 完全引用+URLを別フィールドに保存。最終的な "## References" セクションは
+    # LLM に生成させず、report.references_md() でサーバー側から確定的に
+    # 生成しリンクを付与する（LLMの自由記述だとタグの欠落・書式崩れが起きるため）。
     aggregated["full_references"] = {
-        cat: [(tag, full) for tag, _, full in entries]
+        cat: [(tag, full, url) for tag, _short, full, url in entries]
         for cat, entries in ref_reg.items()
     }
 

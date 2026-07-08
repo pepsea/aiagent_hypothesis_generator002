@@ -74,6 +74,14 @@ def process_gene(
         log(f"\n  ✗ 仮説生成失敗: {e}")
         return {"gene": gene, "status": f"仮説生成失敗: {e}"}
 
+    # LLM が自己流の "## References" を書いていれば除去し、エビデンス
+    # コンテキストから確定的に生成したリンク付き References に差し替える。
+    references_section = report.references_md(evidence.get("full_references") or {})
+    if references_section:
+        hypothesis = report.strip_llm_references(hypothesis) + "\n\n---\n\n" + references_section
+        if verbose:
+            print("\n\n---\n\n" + references_section)
+
     # 6. レポート保存
     path = _save_report(gene, disease, lang, hypothesis, context,
                         evidence, ppi_graph, enrichment, log)

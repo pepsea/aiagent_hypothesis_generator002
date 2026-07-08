@@ -346,6 +346,7 @@ def _collector_data(key: str, result) -> dict | None:
                         # directionality → sources の順にフォールバックして表示する
                         "type": (d.get("interaction_type") or d.get("directionality") or ""),
                         "approved": d.get("approved", False),
+                        "score": d.get("score"),
                         "sources": d.get("sources", []),
                         "pmids": d.get("pmids", []),
                     } for d in result[:15]]}
@@ -417,11 +418,11 @@ def analyze():
     use_string  = "string" in ppi_sources
     biogrid_requested = "biogrid" in ppi_sources
     use_biogrid_sel = biogrid_requested and USE_BIOGRID
-    string_score = int(ppi.get("string_score", 400))
+    string_score = int(ppi.get("string_score", 700))
     min_score    = ppi.get("min_score")
     min_score    = float(min_score) if min_score not in (None, "", "null") else None
-    hub_threshold = int(ppi.get("hub_threshold", 3000))
-    max_nodes    = int(ppi.get("max_nodes", 30))
+    hub_threshold = int(ppi.get("hub_threshold", 1000))
+    max_nodes    = int(ppi.get("max_nodes", 100))
 
     if not genes or not disease_name:
         return jsonify({"error": "genes and disease_name required"}), 400
@@ -628,6 +629,15 @@ def analyze():
                 send("gene_error", gene=gene, error=f"仮説生成失敗: {e}")
                 continue
 
+            # LLM が誤って自己流の "## References" を書いていれば除去し、
+            # サーバー側でエビデンスコンテキストから確定的に生成した
+            # リンク付き References に差し替える（Web画面・MD・スナップショット
+            # すべてで一貫させるため、ここで hypothesis 本体に結合する）。
+            references_section = rpt.references_md(evidence.get("full_references") or {})
+            if references_section:
+                hypothesis = rpt.strip_llm_references(hypothesis) + "\n\n---\n\n" + references_section
+                q.put({"type": "token", "gene": gene, "token": "\n\n---\n\n" + references_section})
+
             # ── 5. Save report ────────────────────────────────────────────────
             send("progress", gene=gene, step="saving", message="レポート保存中...")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -732,6 +742,44 @@ def analyze():
 @app.route("/reports/<path:filename>")
 def serve_report(filename):
     return send_from_directory(str(REPORTS_DIR), filename)
+
+
+# ─── API: history（過去の解析結果の一覧） ──────────────────────────────────
+@app.route("/api/history")
+def history():
+    """reports/ 配下の全遺伝子×疾患ディレクトリをスキャンし、
+    保存済みスナップショット/MDレポートの一覧を新しい順で返す。"""
+    entries = []
+    if REPORTS_DIR.exists():
+        for d in REPORTS_DIR.iterdir():
+            if not d.is_dir():
+                continue
+            snapshots = {p.stem.replace("_snapshot", ""): p for p in d.glob("*_snapshot.html")}
+            mds       = list(d.glob("*.md"))
+            timestamps = set(snapshots.keys())
+            for m in mds:
+                # ファイル名例: 20260708_220735_JA.md → ts = 20260708_220735
+                parts = m.stem.rsplit("_", 1)
+                if len(parts) == 2:
+                    timestamps.add(parts[0])
+            for ts in timestamps:
+                snap = snapshots.get(ts)
+                md = next((m for m in mds if m.stem.startswith(ts)), None)
+                if not snap and not md:
+                    continue
+                lang = ""
+                if md:
+                    suffix = md.stem.rsplit("_", 1)[-1]
+                    lang = suffix if suffix in ("JA", "EN") else ""
+                entries.append({
+                    "dir": d.name,
+                    "timestamp": ts,
+                    "lang": lang,
+                    "snapshot_url": f"/reports/{d.name}/{snap.name}" if snap else None,
+                    "md_url": f"/reports/{d.name}/{md.name}" if md else None,
+                })
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    return jsonify({"entries": entries[:300]})
 
 
 @app.route("/")

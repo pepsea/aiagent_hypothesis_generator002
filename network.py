@@ -32,7 +32,7 @@ import re
 #     （G タンパク質サブユニット、ユビキチン、チューブリン等）。これらは
 #     相互作用数が中程度でもシグナル/構造の非特異ハブとして機能するため、
 #     数だけでは捕捉できない。族はパターン（正規表現）で定義し再現可能。
-HUB_DEGREE_THRESHOLD = int(os.environ.get("HUB_DEGREE_THRESHOLD", "3000"))
+HUB_DEGREE_THRESHOLD = int(os.environ.get("HUB_DEGREE_THRESHOLD", "1000"))
 
 # 非特異ハブ族の遺伝子名パターン（HGNC 命名規則に基づく）
 HUB_FAMILY_PATTERNS = [

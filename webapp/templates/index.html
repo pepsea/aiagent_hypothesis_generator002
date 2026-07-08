@@ -269,8 +269,8 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
 
     <div style="margin-top:12px;font-size:12px;color:var(--text-sub);">クライテリア</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
-      <label style="font-size:12px;">STRING 信頼度閾値: <b id="string-score-val">400</b>
-        <input type="range" id="ppi-string-score" min="150" max="900" step="50" value="400"
+      <label style="font-size:12px;">STRING 信頼度閾値: <b id="string-score-val">700</b>
+        <input type="range" id="ppi-string-score" min="150" max="900" step="50" value="700"
                style="width:100%;" oninput="document.getElementById('string-score-val').textContent=this.value">
         <span style="font-size:10px;color:var(--text-sub);">150=低 / 400=中 / 700=高</span>
       </label>
@@ -278,10 +278,10 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
         <input type="text" id="ppi-min-score" placeholder="例: 0.4（空欄=なし）" style="margin-top:2px;">
       </label>
       <label style="font-size:12px;">ハブ除外閾値（相互作用数）:
-        <input type="text" id="ppi-hub-threshold" value="3000" style="margin-top:2px;">
+        <input type="text" id="ppi-hub-threshold" value="1000" style="margin-top:2px;">
       </label>
       <label style="font-size:12px;">最大パートナー数:
-        <input type="text" id="ppi-max-nodes" value="30" style="margin-top:2px;">
+        <input type="text" id="ppi-max-nodes" value="100" style="margin-top:2px;">
       </label>
     </div>
   </div>
@@ -289,6 +289,8 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
   <!-- Run -->
   <button id="run-btn" class="btn btn-primary" style="width:100%;justify-content:center;"
           onclick="startAnalysis()">▶ 解析開始</button>
+  <button class="btn btn-secondary" style="width:100%;justify-content:center;margin-top:8px;"
+          onclick="showHistory()">📚 過去の結果を見る</button>
 
 </aside>
 
@@ -301,6 +303,19 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
       <span id="batch-status" style="font-size:13px;color:var(--text-sub);"></span>
       <button id="stop-btn" class="btn btn-danger btn-sm" style="display:none;" onclick="stopAnalysis()">■ 停止</button>
     </div>
+  </div>
+
+  <!-- History panel -->
+  <div id="history-panel" class="card" style="display:none;margin-bottom:20px;">
+    <div class="progress-header">
+      <span class="card-title" style="margin:0;">過去の解析結果</span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('history-panel').style.display='none'">閉じる</button>
+    </div>
+    <div style="margin:10px 0;">
+      <input type="text" id="history-filter" placeholder="遺伝子名・疾患名で絞り込み"
+             oninput="renderHistoryList()" style="max-width:320px;">
+    </div>
+    <div id="history-list" style="max-height:500px;overflow-y:auto;"></div>
   </div>
 
   <!-- Progress log -->
@@ -366,8 +381,11 @@ async function checkOllama() {
         sel.innerHTML = d.models.map(m =>
           `<option value="${m}"${m === prev ? " selected" : ""}>${m}</option>`
         ).join("");
-        // restore previous selection or keep first
-        if (!sel.value) sel.value = d.models[0];
+        // 既存選択を維持。無ければ既定モデル(qwen2.5:14b)を優先、無ければ先頭
+        if (!sel.value) {
+          const preferred = "qwen2.5:14b";
+          sel.value = d.models.includes(preferred) ? preferred : d.models[0];
+        }
       }
     } else {
       el.className = "status-pill err";
@@ -454,10 +472,10 @@ function collectPpiConfig() {
   const minRaw = document.getElementById("ppi-min-score").value.trim();
   return {
     sources,
-    string_score: num("ppi-string-score", 400),
+    string_score: num("ppi-string-score", 700),
     min_score: minRaw === "" ? null : parseFloat(minRaw),
-    hub_threshold: num("ppi-hub-threshold", 3000),
-    max_nodes: num("ppi-max-nodes", 30),
+    hub_threshold: num("ppi-hub-threshold", 1000),
+    max_nodes: num("ppi-max-nodes", 100),
   };
 }
 
@@ -683,25 +701,63 @@ function appendToken(gene, tok) {
 }
 
 function renderMarkdown(text) {
-  // Minimal markdown rendering
-  return text
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+  // 行単位でブロック（見出し・テーブル・リスト・段落）を判定してから
+  // インライン装飾（太字・リンク等）を適用する。旧実装はテーブル変換後に
+  // 改行→<br>変換をかけていたため <table><br><tr>... のように壊れていた。
+  const inlineMd = s => esc(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^\| (.+) \|$/gm, (m) => {
-      const cells = m.slice(2,-2).split(" | ");
-      if (cells.every(c => /^-+$/.test(c.trim()))) return "";
-      const tag = "td";
-      return "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
-    })
-    .replace(/(<tr>.*<\/tr>\n?)+/g, s => `<table>${s}</table>`)
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  const splitRow = l => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+  const isTableRow = l => /^\s*\|.*\|\s*$/.test(l);
+  const isSepRow   = l => isTableRow(l) && /^[\s|:-]+$/.test(l) && l.includes("-");
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // テーブル: ヘッダー行 + セパレータ行 (|---|---|) + データ行群
+    if (isTableRow(line) && lines[i+1] !== undefined && isSepRow(lines[i+1])) {
+      const header = splitRow(line);
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        bodyRows.push(splitRow(lines[i]));
+        i++;
+      }
+      let html = "<table><thead><tr>" +
+        header.map(c => `<th>${inlineMd(c)}</th>`).join("") + "</tr></thead><tbody>";
+      for (const row of bodyRows) {
+        html += "<tr>" + row.map(c => `<td>${inlineMd(c)}</td>`).join("") + "</tr>";
+      }
+      html += "</tbody></table>";
+      out.push(html);
+      continue;
+    }
+
+    let m;
+    if ((m = /^##\s+(.+)$/.exec(line))) { out.push(`<h2>${inlineMd(m[1])}</h2>`); i++; continue; }
+    if ((m = /^###\s+(.+)$/.exec(line))) { out.push(`<h3>${inlineMd(m[1])}</h3>`); i++; continue; }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(`<li>${inlineMd(lines[i].replace(/^[-*]\s+/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    if (line.trim() === "") { out.push("<br>"); i++; continue; }
+    out.push(`${inlineMd(line)}<br>`);
+    i++;
+  }
+  return out.join("\n");
 }
 
 function removeCursors() {
@@ -1120,12 +1176,17 @@ function renderDataDetail(source, data) {
         const drugLink = `<a href="https://dgidb.org/results?searchType=drug&searchTerms=${encodeURIComponent(d.drug||"")}" target="_blank">${esc(d.drug)}</a>`;
         const approvedBadge = d.approved ? '<span class="badge">承認薬</span>' : '';
         const sources = (d.sources||[]).join(", ");
+        const pmidLinks = (d.pmids||[]).map(pm =>
+          `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(pm)}" target="_blank">${esc(pm)}</a>`).join(", ");
+        const scoreStr = (typeof d.score === "number") ? d.score.toFixed(2) : "—";
         return `<tr><td style="font-family:monospace;">${drugLink} ${approvedBadge}</td>
-        <td>${esc(d.type) || '<span style="color:var(--text-sub)">不明</span>'}</td>
-        <td style="font-size:11px;color:var(--text-sub);">${esc(sources)}</td></tr>`;
+        <td>${d.type ? esc(d.type) : '<span style="color:var(--text-sub)">不明</span>'}</td>
+        <td class="pval">${scoreStr}</td>
+        <td style="font-size:11px;color:var(--text-sub);">${esc(sources)}</td>
+        <td style="font-size:11px;">${pmidLinks || "—"}</td></tr>`;
       }).join("");
       return rows
-        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th><th>ソース</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th><th>スコア</th><th>ソース</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "reactome" && data.pathways) {
@@ -1202,6 +1263,55 @@ function logMsg(msg, cls = "") {
 
 function clearLog() {
   document.getElementById("progress-log").innerHTML = "";
+}
+
+// ── 過去の解析結果一覧 ──────────────────────────────────────────────────────
+let historyEntries = [];
+
+async function showHistory() {
+  const panel = document.getElementById("history-panel");
+  panel.style.display = "block";
+  panel.scrollIntoView({behavior: "smooth"});
+  document.getElementById("history-list").innerHTML =
+    '<span style="color:var(--text-sub);font-size:13px;">読み込み中...</span>';
+  try {
+    const r = await fetch("/api/history");
+    const d = await r.json();
+    historyEntries = d.entries || [];
+    renderHistoryList();
+  } catch (e) {
+    document.getElementById("history-list").innerHTML =
+      `<span style="color:var(--error);font-size:13px;">読み込みエラー: ${esc(e.message)}</span>`;
+  }
+}
+
+function renderHistoryList() {
+  const filter = (document.getElementById("history-filter").value || "").toLowerCase();
+  const el = document.getElementById("history-list");
+  const filtered = historyEntries.filter(e => e.dir.toLowerCase().includes(filter));
+  if (!filtered.length) {
+    el.innerHTML = '<span style="color:var(--text-sub);font-size:13px;">該当する結果がありません</span>';
+    return;
+  }
+  el.innerHTML = filtered.map(e => {
+    // ディレクトリ名例: "LRRK2_Parkinson_disease" → 表示用に整形
+    const label = e.dir.replace(/_/g, " ");
+    const ts = e.timestamp.replace(
+      /(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/,
+      "$1-$2-$3 $4:$5:$6"
+    );
+    const links = [];
+    if (e.snapshot_url) links.push(`<a href="${esc(e.snapshot_url)}" target="_blank" class="btn btn-secondary btn-sm">🖥 Web表示</a>`);
+    if (e.md_url) links.push(`<a href="${esc(e.md_url)}" target="_blank" class="btn btn-secondary btn-sm">📄 Markdown</a>`);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;
+                padding:10px 12px;border:1px solid var(--border);border-radius:7px;margin-bottom:6px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">${esc(label)}</div>
+        <div style="font-size:11px;color:var(--text-sub);">${esc(ts)}${e.lang?` ・ ${esc(e.lang)}`:""}</div>
+      </div>
+      <div style="display:flex;gap:6px;">${links.join("")}</div>
+    </div>`;
+  }).join("");
 }
 
 // ── スナップショット再生（サーバー無し・オフライン閲覧用） ─────────────────
