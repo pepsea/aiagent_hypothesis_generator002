@@ -1116,11 +1116,14 @@ function renderDataDetail(source, data) {
         const titleHtml = t.url
           ? `<a href="${esc(t.url)}" target="_blank">${esc(t.title)}</a>`
           : (t.nct_id ? `<a href="https://clinicaltrials.gov/study/${esc(t.nct_id)}" target="_blank">${esc(t.title)}</a>` : esc(t.title));
+        const collabs = (t.collaborators||[]).length
+          ? `<div style="font-size:10px;color:var(--text-sub);">+ ${esc(t.collaborators.join(", "))}</div>` : "";
         return `<tr><td>${titleHtml}</td>
         <td><span class="badge">${esc(t.phase||"N/A")}</span></td>
-        <td>${esc(t.status)}</td></tr>`;
+        <td>${esc(t.status)}</td>
+        <td style="font-size:12px;">${esc(t.sponsor||"—")}${collabs}</td></tr>`;
       }).join("");
-      return `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th><th>スポンサー</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "alphafold") {
       const plddt = (typeof data.plddt === "number") ? data.plddt.toFixed(1) : "N/A";

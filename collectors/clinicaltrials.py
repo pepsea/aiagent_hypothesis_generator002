@@ -33,7 +33,8 @@ def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[di
         "pageSize":   min(max_results * 2, 20),
         "format":     "json",
         "fields":     "NCTId,BriefTitle,OverallStatus,Phase,StartDate,"
-                      "Condition,InterventionName,InterventionType",
+                      "Condition,InterventionName,InterventionType,"
+                      "LeadSponsorName,CollaboratorName",
     }
 
     try:
@@ -51,6 +52,7 @@ def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[di
         design = proto.get("designModule", {})
         conds  = proto.get("conditionsModule", {})
         arms   = proto.get("armsInterventionsModule", {})
+        sponsor_mod = proto.get("sponsorCollaboratorsModule", {})
 
         nct_id = ident.get("nctId", "")
         phase_list = design.get("phases", [])
@@ -62,6 +64,9 @@ def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[di
             if iv.get("type", "") in ("DRUG", "BIOLOGICAL", "GENETIC", "")
         ][:5]
 
+        lead_sponsor  = (sponsor_mod.get("leadSponsor") or {}).get("name", "")
+        collaborators = [c.get("name", "") for c in (sponsor_mod.get("collaborators") or [])][:5]
+
         results.append({
             "nct_id":        nct_id,
             "title":         ident.get("briefTitle", ""),
@@ -70,6 +75,8 @@ def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[di
             "start_date":    status.get("startDateStruct", {}).get("date", ""),
             "conditions":    (conds.get("conditions") or [])[:3],
             "interventions": interventions,
+            "sponsor":       lead_sponsor,
+            "collaborators": collaborators,
             "url":           f"https://clinicaltrials.gov/study/{nct_id}" if nct_id else "",
         })
 

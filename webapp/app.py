@@ -354,7 +354,10 @@ def _collector_data(key: str, result) -> dict | None:
             return {"trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
                                  "status": t.get("status", ""),
                                  "nct_id": t.get("nct_id", ""),
-                                 "url": t.get("url", "")} for t in result[:8]]}
+                                 "url": t.get("url", ""),
+                                 # 取得データタブ表示専用（LLMコンテキストには含めない）
+                                 "sponsor": t.get("sponsor", ""),
+                                 "collaborators": t.get("collaborators", [])} for t in result[:8]]}
         if key == "alphafold" and isinstance(result, dict):
             return {"plddt": result.get("mean_plddt", result.get("plddt")),
                     "confidence": result.get("confidence", ""),
