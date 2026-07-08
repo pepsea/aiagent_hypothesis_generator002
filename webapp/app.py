@@ -59,6 +59,7 @@ from collectors import (
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
     reactome, toxicity, signor, biogrid, string_db,
 )
+import snapshot as snap_mod
 
 app = Flask(__name__)
 
@@ -308,7 +309,7 @@ def _collector_data(key: str, result) -> dict | None:
                                    "significance": v.get("clinical_significance", "") or "—",
                                    "condition": v.get("condition", "") or "—",
                                    "review": v.get("review_status", "")}
-                                  for v in result[:10]]}
+                                  for v in result[:100]]}
         if key == "chembl" and isinstance(result, list):
             return {"drugs": [{"name": d.get("name", "") or d.get("chembl_id", ""),
                                 "phase": d.get("max_phase", ""),
@@ -647,12 +648,42 @@ def analyze():
                     "is_target": g.upper() == gene.upper(),
                 })
 
+            # ── 6. Web 表示のスナップショット保存 ──────────────────────────────
+            # 取得データ（全ソース）を、Webアプリと同じ見た目でオフライン閲覧
+            # できる単一 HTML として書き出す（サーバー不要・ブラウザで直接開ける）。
+            collectors_snapshot = {}
+            for src in list(COLLECTORS.keys()) + ["toxicity"]:
+                result = results.get(src)
+                err = errors.get(src)
+                collectors_snapshot[src] = {
+                    "ok": (err is None and result is not None),
+                    "summary": _collector_summary(src, result, err),
+                    "data": _collector_data(src, result),
+                }
+            enr_results_full = (enrichment or {}).get("results", [])[:100]
+            excluded_hubs_full = (enrichment or {}).get("excluded_hubs", [])
+            snapshot_html = snap_mod.build_snapshot_html(
+                gene=gene, disease=disease_name, lang=lang,
+                generated_iso=datetime.now().isoformat(),
+                collectors=collectors_snapshot,
+                hypothesis=hypothesis,
+                ppi_image_filename=(Path(ppi_image_rel).name if ppi_image_rel else ""),
+                partners=partners,
+                partner_functions=partner_functions,
+                enrichment_results=enr_results_full,
+                excluded_hubs=excluded_hubs_full,
+                report_filename=rpt_path.name,
+            )
+            snapshot_path = pair_dir / f"{ts}_snapshot.html"
+            snapshot_path.write_text(snapshot_html, encoding="utf-8")
+
             send("gene_done", gene=gene, path=str(rpt_path),
                  hypothesis=hypothesis,
                  ppi_image=ppi_image_rel, partners=partners,
                  partner_functions=partner_functions,
-                 enrichment_results=(enrichment or {}).get("results", [])[:100],
-                 excluded_hubs=(enrichment or {}).get("excluded_hubs", []))
+                 enrichment_results=enr_results_full,
+                 excluded_hubs=excluded_hubs_full,
+                 snapshot_path=str(snapshot_path))
 
         if not cancel_ev.is_set():
             send("batch_done", total=len(genes))

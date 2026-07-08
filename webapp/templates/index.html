@@ -337,6 +337,14 @@ let currentJobId    = null; // id for server-side cancellation
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+  // このファイルにスナップショットデータが埋め込まれていれば、サーバー機能
+  // （Ollama確認・疾患検索等）は一切使わずデータをそのまま描画するだけにする。
+  const snapEl = document.getElementById("snapshot-data");
+  if (snapEl) {
+    try { renderSnapshot(JSON.parse(snapEl.textContent)); }
+    catch (e) { console.error("スナップショット読み込みエラー", e); }
+    return;
+  }
   checkOllama();
   setInterval(checkOllama, 30000);
   document.getElementById("disease-input").addEventListener("keydown", e => {
@@ -725,8 +733,7 @@ function finalizeGene(gene, ev) {
     const el = document.getElementById(id + "-ppi-content");
     let imgHtml = "";
     if (ev.ppi_image) {
-      const imgPath = ev.ppi_image.replace(/\\/g, "/");
-      const imgUrl = "/reports/" + imgPath.split("/reports/").slice(1).join("/reports/");
+      const imgUrl = toReportsUrl(ev.ppi_image);
       imgHtml = `
         <img src="${imgUrl}" class="ppi-image" alt="PPI network">
         <p style="margin-top:8px;font-size:12px;color:var(--text-sub);">
@@ -752,16 +759,35 @@ function finalizeGene(gene, ev) {
   // Download
   if (ev.path) {
     const el = document.getElementById(id + "-dl-content");
-    const relPath = ev.path.replace(/\\/g,"/").split("/reports/").slice(1).join("/reports/");
+    const mdUrl = toReportsUrl(ev.path);
+    const snapshotRow = ev.snapshot_path
+      ? `<a href="${toReportsUrl(ev.snapshot_path)}" target="_blank" class="btn btn-secondary btn-sm">
+           🖥 Web表示を保存 (HTML)
+         </a>`
+      : "";
     if (el) el.innerHTML = `
       <p style="font-size:13px;margin-bottom:12px;">レポートファイル</p>
       <div class="download-row">
-        <a href="/reports/${relPath}" target="_blank" class="btn btn-secondary btn-sm">
+        <a href="${mdUrl}" target="_blank" class="btn btn-secondary btn-sm">
           📄 Markdownを開く
         </a>
+        ${snapshotRow}
       </div>
-      <p style="font-size:11px;color:var(--text-sub);margin-top:8px;">${ev.path}</p>`;
+      <p style="font-size:11px;color:var(--text-sub);margin-top:8px;">${ev.path}</p>
+      ${ev.snapshot_path ? `<p style="font-size:11px;color:var(--text-sub);margin-top:2px;">
+        「Web表示を保存」は取得データ・仮説・PPI・エンリッチメントの全タブを
+        サーバー無しでそのまま再現するオフライン用HTMLです。</p>` : ""}`;
   }
+}
+
+// サーバー実行中は絶対パス（/reports/... 配信）、スナップショットHTML内では
+// 同じフォルダに保存された画像・レポートを相対ファイル名で参照する。
+function toReportsUrl(pathStr) {
+  const p = String(pathStr || "").replace(/\\/g, "/");
+  if (p.includes("/reports/")) {
+    return "/reports/" + p.split("/reports/").slice(1).join("/reports/");
+  }
+  return p;  // 相対ファイル名（スナップショット内）はそのまま使う
 }
 
 function renderEnrichment(results) {
@@ -1134,6 +1160,54 @@ function logMsg(msg, cls = "") {
 
 function clearLog() {
   document.getElementById("progress-log").innerHTML = "";
+}
+
+// ── スナップショット再生（サーバー無し・オフライン閲覧用） ─────────────────
+// webapp/snapshot.py が生成する <script id="snapshot-data"> のデータを読み、
+// 通常運用時に使っているのと同じ描画関数（createGeneCard 等）でそのまま
+// 「取得データ／仮説／PPI／エンリッチメント／ダウンロード」全タブを再現する。
+function renderSnapshot(snap) {
+  const appEl = document.querySelector(".app");
+  if (appEl) appEl.style.gridTemplateColumns = "1fr";
+  const sidebar = document.querySelector(".sidebar");
+  if (sidebar) sidebar.style.display = "none";
+  const progressPanel = document.getElementById("progress-panel");
+  if (progressPanel) progressPanel.style.display = "none";
+  const emptyState = document.getElementById("empty-state");
+  if (emptyState) emptyState.style.display = "none";
+  const runBar = document.querySelector(".run-bar");
+  if (runBar) runBar.style.display = "none";
+
+  const mainTitle = document.getElementById("main-title");
+  if (mainTitle) {
+    mainTitle.textContent = `${snap.disease} — ${snap.gene}（保存済みスナップショット / ${snap.generated}）`;
+  }
+  document.title = `${snap.gene} × ${snap.disease} — スナップショット`;
+
+  geneState[snap.gene] = { tokens: [], done: true };
+  createGeneCard(snap.gene);
+
+  const sources = Object.keys(snap.collectors || {}).filter(s => s !== "toxicity");
+  initCollectorGrid(snap.gene, sources);
+  for (const [src, c] of Object.entries(snap.collectors || {})) {
+    updateCollectorChip(snap.gene, src, c.ok, c.summary, c.data);
+  }
+
+  finalizeGene(snap.gene, {
+    hypothesis: snap.hypothesis,
+    ppi_image: snap.ppi_image,
+    partners: snap.partners,
+    partner_functions: snap.partner_functions,
+    enrichment_results: snap.enrichment_results,
+    excluded_hubs: snap.excluded_hubs,
+    path: snap.report_filename,
+  });
+  // finalizeGene 内の仮説フォールバック（switchToHypothesisTab）が
+  // ステータスを「仮説生成中...」に書き換えるため、最後に確定させる。
+  setGeneStatus(snap.gene, "done", "✓ 完了");
+
+  // 常に「仮説」タブを開いた状態で表示する
+  showTab(cardId(snap.gene), "hyp", { stopPropagation(){}, currentTarget: document.querySelector(`#${cardId(snap.gene)} .tab-btn`) });
 }
 </script>
 </body>
