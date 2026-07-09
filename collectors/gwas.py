@@ -58,11 +58,17 @@ def get_gwas_associations(gene_symbol: str, disease_query: str = None,
         return []
 
     # SNP ごとの取得を並列化（逐次だと ~60s → 並列で数秒）
+    # 語順違い（例: "type 2 diabetes mellitus" vs "diabetes mellitus type 2"）で
+    # 単純な部分文字列一致だと本来ヒットすべき trait を取りこぼすため、
+    # クエリを単語分割し全単語がトレイト文字列に含まれるかで判定する
+    query_words = disease_query.lower().split() if disease_query else []
+
     results, seen = [], set()
     with ThreadPoolExecutor(max_workers=10) as ex:
         for hits in ex.map(_fetch_snp_hits, snps):
             for h in hits:
-                if disease_query and disease_query.lower() not in (h["trait"] or "").lower():
+                trait_lower = (h["trait"] or "").lower()
+                if query_words and not all(w in trait_lower for w in query_words):
                     continue
                 key = (h["snps"][0], h["trait"])
                 if key in seen:
@@ -86,7 +92,7 @@ def get_clinvar_variants(gene_symbol: str) -> list[dict]:
     query = f"{gene_symbol}[Gene Name] AND (Pathogenic[Clinical significance] OR Likely pathogenic[Clinical significance])"
 
     r = requests.get(f"{base}/esearch.fcgi", params={
-        "db": "clinvar", "term": query, "retmax": 10, "retmode": "json"
+        "db": "clinvar", "term": query, "retmax": 100, "retmode": "json"
     }, timeout=15)
     r.raise_for_status()
     ids = r.json().get("esearchresult", {}).get("idlist", [])
@@ -113,12 +119,16 @@ def get_clinvar_variants(gene_symbol: str) -> list[dict]:
         if vid not in result:
             continue
         item = result[vid]
+        # NCBI eutils は germline_classification（旧 clinical_significance）に
+        # 臨床的意義・レビュー状態・trait を格納する
+        cls = item.get("germline_classification") or item.get("clinical_significance") or {}
+        traits = cls.get("trait_set") or []
         variants.append({
             "variant_id": vid,
             "title": item.get("title", ""),
-            "clinical_significance": item.get("clinical_significance", {}).get("description", ""),
-            "condition": item.get("trait_set", [{}])[0].get("trait_name", "") if item.get("trait_set") else "",
-            "review_status": item.get("clinical_significance", {}).get("review_status", ""),
+            "clinical_significance": cls.get("description", ""),
+            "condition": traits[0].get("trait_name", "") if traits else "",
+            "review_status": cls.get("review_status", ""),
         })
 
     return variants

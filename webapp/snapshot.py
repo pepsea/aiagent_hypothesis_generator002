@@ -26,6 +26,7 @@ def build_snapshot_html(
     enrichment_results: list[dict],
     excluded_hubs: list[dict],
     report_filename: str,
+    model: str = "",
 ) -> str:
     """スナップショット HTML 文字列を生成する。
 
@@ -49,6 +50,7 @@ def build_snapshot_html(
         "enrichment_results": enrichment_results,
         "excluded_hubs": excluded_hubs,
         "report_filename": report_filename,
+        "model": model,
     }
     payload = json.dumps(snapshot, ensure_ascii=False, default=str)
     script_tag = f'<script id="snapshot-data" type="application/json">{payload}</script>\n'

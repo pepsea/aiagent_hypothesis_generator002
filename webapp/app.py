@@ -212,6 +212,8 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return "データなし"
     if key == "hpa":
         if isinstance(result, dict):
+            if "error" in result:
+                return f"エラー: {result['error'][:60]}"
             n = len(result.get("tissue_expression", []))
             loc = (result.get("subcellular") or [])
             loc_str = ", ".join(loc[:2]) if loc else "N/A"
@@ -231,7 +233,10 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return f"{len(result)} パスウェイ" if isinstance(result, list) else "取得済み"
     if key == "toxicity":
         if isinstance(result, dict):
-            return f"リスク: {result.get('overall_risk', 'N/A')}"
+            tc = result.get("toxcast") or {}
+            if not tc.get("available"):
+                return "ToxCast: APIキー未設定"
+            return f"ToxCast assays: {tc.get('assay_count', 0)}"
         return "取得済み"
     return "取得済み"
 
@@ -334,10 +339,11 @@ def _collector_data(key: str, result) -> dict | None:
                     "key_tissues": result.get("key_tissues", []),
                     "url": result.get("url", "")}
         if key == "hpa" and isinstance(result, dict):
-            tissues = result.get("tissue_expression", [])
             return {"subcellular": result.get("subcellular", []),
                     "protein_tissue": result.get("protein_tissue", []),
-                    "tissues": tissues[:15],
+                    "tissues": result.get("tissue_expression", []),
+                    "single_cell": result.get("single_cell_expression", []),
+                    "cancer": result.get("cancer_expression", []),
                     "url": result.get("url", "")}
         if key == "dgidb" and isinstance(result, list):
             return {"interactions": [{
@@ -369,13 +375,14 @@ def _collector_data(key: str, result) -> dict | None:
                                    "id": p.get("pathway_id", ""),
                                    "is_disease": p.get("is_disease", False)} for p in result[:15]]}
         if key == "toxicity" and isinstance(result, dict):
-            pb = result.get("pubchem_bioassay") or {}
+            tc = result.get("toxcast") or {}
             return {
-                "gene": pb.get("gene", ""),
-                "assay_count": pb.get("assay_count", 0),
-                "sample_assay_ids": pb.get("sample_assay_ids", []),
+                "gene": tc.get("gene", ""),
+                "toxcast_available": tc.get("available", False),
+                "assay_count": tc.get("assay_count", 0),
+                "assays": tc.get("assays", []),
+                "toxcast_note": tc.get("note", ""),
                 "drug_adverse_events": result.get("drug_adverse_events", {}),
-                "toxcast_note": result.get("toxcast_note", ""),
             }
     except Exception:
         pass
@@ -662,6 +669,7 @@ def analyze():
                 generated_iso=datetime.now().isoformat(),
                 ppi_section=ppi_section,
                 enrichment_section=rpt.enrichment_md(enrichment),
+                model=model,
             )
             suffix = "JA" if lang == "ja" else "EN"
             rpt_path = pair_dir / f"{ts}_{suffix}.md"
@@ -710,12 +718,13 @@ def analyze():
                 enrichment_results=enr_results_full,
                 excluded_hubs=excluded_hubs_full,
                 report_filename=rpt_path.name,
+                model=model,
             )
             snapshot_path = pair_dir / f"{ts}_snapshot.html"
             snapshot_path.write_text(snapshot_html, encoding="utf-8")
 
             send("gene_done", gene=gene, path=str(rpt_path),
-                 hypothesis=hypothesis,
+                 hypothesis=hypothesis, model=model,
                  ppi_image=ppi_image_rel, partners=partners,
                  partner_functions=partner_functions,
                  enrichment_results=enr_results_full,

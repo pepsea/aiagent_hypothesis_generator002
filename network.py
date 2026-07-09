@@ -540,13 +540,13 @@ def render_ppi_image(
             used_dbs |= dbs
         ax.scatter([x], [y], s=320, c=node_db_color(node), edgecolors="#222",
                    linewidths=0.8, zorder=2)
-        ax.text(x, y - 0.055, node, ha="center", va="top",
+        ax.text(x, y, node, ha="center", va="center",
                 fontsize=7.5, color="#222", zorder=3)
 
     # 中心ノード（星）
     ax.scatter([cx], [cy], s=900, c="#FF6B6B", marker="*",
                edgecolors="#222", linewidths=1.0, zorder=4)
-    ax.text(cx, cy + 0.06, center, ha="center", va="bottom",
+    ax.text(cx, cy, center, ha="center", va="center",
             fontsize=12, fontweight="bold", color="#B22222", zorder=5)
 
     # 凡例（DBソース）

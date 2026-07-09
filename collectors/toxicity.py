@@ -1,34 +1,53 @@
 """Toxicity data collectors.
 
 Sources:
-- PubChem BioAssay (public domain, NIH) — in vitro toxicity assays
-- ToxCast (EPA, public domain) — high-throughput toxicity screening
+- ToxCast (EPA CTX Bioactivity API, public domain) — high-throughput toxicity
+  screening, gene-level assay activity. License: free for non-commercial and
+  commercial use. Requires a personal API key (request via ccte_api@epa.gov),
+  set as the CCTE_API_KEY environment variable.
 - FDA Drug Safety (openFDA, public domain) — adverse events
 """
+import os
+
 import requests
 
-PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 OPENFDA_BASE = "https://api.fda.gov/drug"
+CTX_BASE = "https://comptox.epa.gov/ctx-api"
 
 
-def get_pubchem_gene_toxicity(gene_symbol: str) -> dict:
-    """Get gene involvement in toxicity assays via PubChem BioAssay."""
-    # Query gene-related bioassays with toxicity endpoints
+def get_toxcast_gene_assays(gene_symbol: str) -> dict:
+    """Get ToxCast assay activity summary for a gene target via the EPA CTX Bioactivity API.
+
+    Requires CCTE_API_KEY env var (request a free key at ccte_api@epa.gov).
+    """
+    api_key = os.environ.get("CCTE_API_KEY")
+    if not api_key:
+        return {
+            "gene": gene_symbol,
+            "available": False,
+            "note": "CCTE_API_KEY 未設定のため ToxCast データ取得不可 "
+                    "(ccte_api@epa.gov にキーを申請してください)",
+        }
+
     r = requests.get(
-        f"{PUBCHEM_BASE}/gene/genesymbol/{gene_symbol}/aids/JSON",
-        timeout=15
+        f"{CTX_BASE}/bioactivity/assay/search/by-gene/{gene_symbol}",
+        headers={"x-api-key": api_key},
+        timeout=15,
     )
     if r.status_code == 404:
-        return {"assay_count": 0, "gene": gene_symbol}
+        return {"gene": gene_symbol, "available": True, "assay_count": 0, "assays": []}
     r.raise_for_status()
 
-    aids = r.json().get("InformationList", {}).get("Information", [{}])[0].get("AID", [])
+    data = r.json()
+    assays = data if isinstance(data, list) else [data]
+    assays = [a for a in assays if a]
 
     return {
         "gene": gene_symbol,
-        "assay_count": len(aids),
-        "sample_assay_ids": aids[:5],
-        "source": "PubChem BioAssay (NIH, public domain)",
+        "available": True,
+        "assay_count": len(assays),
+        "assays": assays[:10],
+        "source": "EPA ToxCast/Tox21 via CTX Bioactivity API (public domain)",
     }
 
 
@@ -48,24 +67,9 @@ def get_openfda_adverse_events(drug_name: str, limit: int = 5) -> list[dict]:
     return [{"reaction": item.get("term", ""), "count": item.get("count", 0)} for item in results]
 
 
-def get_toxcast_summary(gene_symbol: str) -> dict:
-    """Get ToxCast/Tox21 assay summary for a gene target (EPA public data via comptox API)."""
-    # EPA CompTox Dashboard API — public domain
-    r = requests.get(
-        f"https://comptox.epa.gov/dashboard-api/ccdapp1/chemical-files/search/by-name/{gene_symbol}",
-        timeout=15
-    )
-    # This endpoint may not always return gene data; use as supplemental
-    return {
-        "gene": gene_symbol,
-        "note": "ToxCast data available via EPA CompTox Dashboard (https://comptox.epa.gov)",
-        "source": "EPA ToxCast/Tox21 (public domain)",
-    }
-
-
 def assess_target_safety(gene_symbol: str, known_drugs: list[dict]) -> dict:
     """Aggregate toxicity signals for a target."""
-    pubchem_data = get_pubchem_gene_toxicity(gene_symbol)
+    toxcast_data = get_toxcast_gene_assays(gene_symbol)
 
     adverse_events = {}
     for drug in known_drugs[:3]:
@@ -76,7 +80,6 @@ def assess_target_safety(gene_symbol: str, known_drugs: list[dict]) -> dict:
                 adverse_events[drug_name] = ae
 
     return {
-        "pubchem_bioassay": pubchem_data,
+        "toxcast": toxcast_data,
         "drug_adverse_events": adverse_events,
-        "toxcast_note": "See EPA CompTox Dashboard for ToxCast assay data",
     }

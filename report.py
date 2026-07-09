@@ -164,6 +164,7 @@ def build_report(
     ppi_section: str = "",
     enrichment_section: str = "",
     references_section: str = "",
+    model: str = "",
 ) -> str:
     """1遺伝子×疾患の完全な Markdown レポートを組み立てて返す。
 
@@ -186,6 +187,8 @@ def build_report(
     if references_section:
         parts += ["---", "", references_section, ""]
     parts += ["---", "", "## Evidence Context", "", context]
+    if model:
+        parts += ["", "---", "", f"*Generated using LLM model: {model}*"]
     return "\n".join(parts)
 
 

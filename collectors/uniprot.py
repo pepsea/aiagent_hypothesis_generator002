@@ -99,20 +99,24 @@ def get_functions_for_genes(gene_symbols: list[str]) -> dict[str, dict]:
     if not genes:
         return {}
 
-    # (gene_exact:A OR gene_exact:B ...) AND ヒト・reviewed のバッチ検索
-    or_clause = " OR ".join(f"gene_exact:{g}" for g in genes)
-    query = f"({or_clause}) AND organism_id:9606 AND reviewed:true"
-    try:
-        r = requests.get(f"{BASE}/search", params={
-            "query": query,
-            "fields": "accession,gene_names,protein_name,cc_function",
-            "format": "json",
-            "size": min(len(genes) * 2, 500),
-        }, timeout=25)
-        r.raise_for_status()
-        results = r.json().get("results", [])
-    except Exception:
-        return {}
+    # UniProt は OR 条件を1クエリ最大100個までしか受け付けないため分割する
+    CHUNK = 100
+    results: list[dict] = []
+    for i in range(0, len(genes), CHUNK):
+        batch = genes[i:i + CHUNK]
+        or_clause = " OR ".join(f"gene_exact:{g}" for g in batch)
+        query = f"({or_clause}) AND organism_id:9606 AND reviewed:true"
+        try:
+            r = requests.get(f"{BASE}/search", params={
+                "query": query,
+                "fields": "accession,gene_names,protein_name,cc_function",
+                "format": "json",
+                "size": min(len(batch) * 2, 500),
+            }, timeout=25)
+            r.raise_for_status()
+            results.extend(r.json().get("results", []))
+        except Exception:
+            continue
 
     out: dict[str, dict] = {}
     for entry in results:

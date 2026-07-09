@@ -75,6 +75,8 @@ def _result_summary(key: str, result, err: str) -> tuple:
             s = f"top: {top[0]['tissue']}({top[0]['tpm']:.0f} TPM)" if top else "no data"
             return "✓", s
         if key == "hpa":
+            if "error" in result:
+                return "✗", result["error"][:55]
             n      = len(result.get("tissue_expression", []))
             subcell = ", ".join(result.get("subcellular", [])[:2]) or "N/A"
             return "✓", f"{n} tissues  loc={subcell}"
@@ -94,9 +96,9 @@ def _result_summary(key: str, result, err: str) -> tuple:
             disease = sum(1 for p in items if p.get("is_disease"))
             return "✓", f"{len(items)} pathways ({disease} disease-related)"
         if key == "toxicity":
-            pb      = (result or {}).get("pubchem_bioassay", {})
+            tc      = (result or {}).get("toxcast", {})
             ae      = (result or {}).get("drug_adverse_events", {})
-            return "✓", f"assays={pb.get('assay_count', 0)}  AE drugs={len(ae)}"
+            return "✓", f"toxcast_assays={tc.get('assay_count', 0)}  AE drugs={len(ae)}"
     except Exception:
         pass
     return "✓", ""
@@ -399,19 +401,20 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
 
     # ── Toxicity ───────────────────────────────────────────────────────────
     tox = ev.get("toxicity") or {}
-    pb  = tox.get("pubchem_bioassay", {})
+    tc  = tox.get("toxcast", {})
     ae  = tox.get("drug_adverse_events", {})
-    url = f"https://pubchem.ncbi.nlm.nih.gov/#query={gene}&input_type=gene"
-    short = f"PubChem BioAssay {gene}. {url}"
-    full  = f"Kim S et al. PubChem 2023. Nucleic Acids Res. 2023;51(D1):D1373-D1380. {url}"
-    ref_pc = add_ref("gene", "PubChem", short, full, url)
+    url = "https://comptox.epa.gov/dashboard"
+    short = f"EPA ToxCast {gene}. {url}"
+    full  = f"US EPA. ToxCast/Tox21 Bioactivity Data via CTX Bioactivity API. {url}"
+    ref_tc = add_ref("gene", "ToxCast", short, full, url)
     ae_str = "; ".join(
         f"{drug}: " + ", ".join(f"{e['reaction']}({e['count']})" for e in evts[:2])
         for drug, evts in list(ae.items())[:2]
     ) or "N/A"
+    tc_str = f"{tc.get('assay_count', 0)}" if tc.get("available") else "N/A (no API key)"
     sections.append(
-        f"## Safety {ref_pc}\n"
-        f"- BioAssays: {pb.get('assay_count', 0)} | AEs: {ae_str}\n"
+        f"## Safety {ref_tc}\n"
+        f"- ToxCast Assays: {tc_str} | AEs: {ae_str}\n"
     )
 
     # ── Literature ─────────────────────────────────────────────────────────
