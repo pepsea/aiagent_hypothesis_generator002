@@ -158,7 +158,6 @@ def collect_all(
         "gtex":            lambda: gtex.get_tissue_expression(gene),
         "hpa":             lambda: hpa.get_expression_profile(gene),
         "dgidb":           lambda: dgidb.get_interactions(gene),
-        "clinicaltrials":  lambda: clinicaltrials.get_trials(gene, disease),
         "alphafold":       lambda: alphafold.get_structure_info(gene),
         "reactome":        lambda: reactome.get_pathways(gene),
     }
@@ -192,6 +191,18 @@ def collect_all(
     results["toxicity"] = tox_result
     if tox_err:
         errors["toxicity"] = tox_err
+
+    # ClinicalTrials: gene-symbol 検索に加え、known_drugs の薬剤名でも検索する
+    # （治験の大半は標的遺伝子名ではなく薬剤コード名でしか言及されないため、
+    #  遺伝子名単独の検索では大半の治験を取りこぼす）
+    drug_names = [d.get("name") or d.get("drug") or "" for d in known_drugs]
+    ct_result, ct_err = _run_with_retry(
+        lambda: clinicaltrials.get_trials(gene, disease, drug_names=drug_names),
+        "clinicaltrials", max_retries, log,
+    )
+    results["clinicaltrials"] = ct_result
+    if ct_err:
+        errors["clinicaltrials"] = ct_err
 
     # ── 収集結果サマリー ─────────────────────────────────────────────────────
     if verbose:

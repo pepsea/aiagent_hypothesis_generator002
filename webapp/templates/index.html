@@ -945,7 +945,7 @@ function initCollectorGrid(gene, sources) {
   const id = cardId(gene);
   const grid = document.getElementById(id + "-collector-grid");
   if (!grid) return;
-  grid.innerHTML = sources.concat(["toxicity"]).map(src => `
+  grid.innerHTML = sources.concat(["toxicity", "clinicaltrials"]).map(src => `
     <div class="collector-chip loading" id="${id}-chip-${src}">
       <div class="chip-name">${SRC_LABEL[src] || src}</div>
       <div class="chip-detail">取得中...</div>
@@ -1411,7 +1411,7 @@ function renderSnapshot(snap) {
   geneState[snap.gene] = { tokens: [], done: true };
   createGeneCard(snap.gene);
 
-  const sources = Object.keys(snap.collectors || {}).filter(s => s !== "toxicity");
+  const sources = Object.keys(snap.collectors || {}).filter(s => s !== "toxicity" && s !== "clinicaltrials");
   initCollectorGrid(snap.gene, sources);
   for (const [src, c] of Object.entries(snap.collectors || {})) {
     updateCollectorChip(snap.gene, src, c.ok, c.summary, c.data);

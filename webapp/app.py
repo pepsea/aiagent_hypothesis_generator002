@@ -489,7 +489,6 @@ def analyze():
                 "gtex":           lambda: gtex.get_tissue_expression(gene),
                 "hpa":            lambda: hpa.get_expression_profile(gene),
                 "dgidb":          lambda: dgidb.get_interactions(gene),
-                "clinicaltrials": lambda: clinicaltrials.get_trials(gene, disease_name),
                 "alphafold":      lambda: alphafold.get_structure_info(gene),
                 "reactome":       lambda: reactome.get_pathways(gene),
             })
@@ -531,6 +530,21 @@ def analyze():
             except Exception as e:
                 errors["toxicity"] = str(e)
                 send("collector_done", gene=gene, source="toxicity", ok=False,
+                     summary=f"エラー: {e}", data=None)
+
+            # clinicaltrials 再検索（chembl/opentargets の既知薬剤名で intervention 検索を追加）
+            # 遺伝子シンボル単独の検索では、薬剤名しか記載されない大半の治験を
+            # 取りこぼすため（例: BACE1 阻害薬の治験の多くは "BACE1" と書かれない）
+            drug_names = [d.get("name") or d.get("drug") or "" for d in known_drugs]
+            try:
+                trials = clinicaltrials.get_trials(gene, disease_name, drug_names=drug_names)
+                results["clinicaltrials"] = trials
+                send("collector_done", gene=gene, source="clinicaltrials", ok=True,
+                     summary=_collector_summary("clinicaltrials", trials, None),
+                     data=_collector_data("clinicaltrials", trials))
+            except Exception as e:
+                errors["clinicaltrials"] = str(e)
+                send("collector_done", gene=gene, source="clinicaltrials", ok=False,
                      summary=f"エラー: {e}", data=None)
 
             evidence = {"gene": gene, "disease": disease_name,
@@ -717,7 +731,7 @@ def analyze():
             # 取得データ（全ソース）を、Webアプリと同じ見た目でオフライン閲覧
             # できる単一 HTML として書き出す（サーバー不要・ブラウザで直接開ける）。
             collectors_snapshot = {}
-            for src in list(COLLECTORS.keys()) + ["toxicity"]:
+            for src in list(COLLECTORS.keys()) + ["toxicity", "clinicaltrials"]:
                 result = results.get(src)
                 err = errors.get(src)
                 collectors_snapshot[src] = {

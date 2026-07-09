@@ -19,39 +19,25 @@ STATUS_LABEL = {
 }
 
 
-def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[dict]:
-    """Return clinical trials related to a gene-disease pair.
-
-    Searches by disease condition; matches the gene symbol against all
-    searchable fields (title, intervention, outcome, eligibility, etc.),
-    not just intervention names. Restricting to query.intr misses most
-    genetic/biomarker trials, since the intervention is usually a drug's
-    brand/code name (e.g. "BIIB122") rather than the target gene symbol —
-    query.term (general full-text search) finds ~30% more relevant trials
-    for the same gene/disease pair.
-    Returns:
-        [{nct_id, title, status, phase, start_date, conditions,
-          interventions, url}]
-    """
+def _search(params: dict, max_results: int) -> list[dict]:
+    """1回分の studies 検索 → 整形済みレコードのリストを返す（失敗時は空）。"""
     params = {
-        "query.cond": disease,
-        "query.term": gene_symbol,
-        "pageSize":   min(max_results * 2, 20),
-        "format":     "json",
-        "fields":     "NCTId,BriefTitle,OverallStatus,Phase,StartDate,"
-                      "Condition,InterventionName,InterventionType,"
-                      "LeadSponsorName,CollaboratorName",
+        **params,
+        "pageSize": min(max_results * 2, 100),
+        "format":   "json",
+        "fields":   "NCTId,BriefTitle,OverallStatus,Phase,StartDate,"
+                    "Condition,InterventionName,InterventionType,"
+                    "LeadSponsorName,CollaboratorName",
     }
-
     try:
         r = requests.get(CT_API, params=params, timeout=20)
         r.raise_for_status()
         studies = r.json().get("studies", [])
-    except Exception as e:
+    except Exception:
         return []
 
     results = []
-    for s in studies[:max_results]:
+    for s in studies:
         proto  = s.get("protocolSection", {})
         ident  = proto.get("identificationModule", {})
         status = proto.get("statusModule", {})
@@ -85,5 +71,51 @@ def get_trials(gene_symbol: str, disease: str, max_results: int = 10) -> list[di
             "collaborators": collaborators,
             "url":           f"https://clinicaltrials.gov/study/{nct_id}" if nct_id else "",
         })
-
     return results
+
+
+def get_trials(
+    gene_symbol: str,
+    disease: str,
+    max_results: int = 10,
+    drug_names: list[str] | None = None,
+) -> list[dict]:
+    """Return clinical trials related to a gene-disease pair.
+
+    Runs two searches and merges/dedupes the results, because a single
+    field can't catch everything:
+      1. query.term=gene_symbol — matches the gene against all searchable
+         fields (title, outcome, eligibility, etc). Catches genetic/
+         biomarker studies, but NOT drug trials, since a trial's
+         intervention is almost always the drug's brand/code name
+         (e.g. "verubecestat"), not the target gene symbol.
+      2. query.intr=<drug_names OR'd> — if known drugs for this target are
+         passed in (from ChEMBL/OpenTargets/DGIdb), search for them by name
+         directly. For BACE1 x Alzheimer's disease this alone finds ~4x
+         more real trials (verubecestat, elenbecestat, lanabecestat,
+         atabecestat, ...) than the gene-symbol search does, because most
+         BACE1 inhibitor trials never mention "BACE1" in any searchable
+         field.
+    Returns:
+        [{nct_id, title, status, phase, start_date, conditions,
+          interventions, url}]
+    """
+    by_nct: dict[str, dict] = {}
+
+    for r in _search({"query.cond": disease, "query.term": gene_symbol}, max_results):
+        by_nct[r["nct_id"]] = r
+
+    drug_names = [d for d in (drug_names or []) if d and d.strip()]
+    if drug_names:
+        # Essie 構文の OR で一括検索（API呼び出し回数を抑える）。長すぎる場合は分割。
+        CHUNK = 15
+        for i in range(0, len(drug_names), CHUNK):
+            chunk = drug_names[i:i + CHUNK]
+            intr_query = " OR ".join(chunk)
+            for r in _search({"query.cond": disease, "query.intr": intr_query}, max_results):
+                by_nct[r["nct_id"]] = r
+
+    results = list(by_nct.values())
+    # 直近の試験を優先（開始日降順、日付不明は末尾）
+    results.sort(key=lambda r: r.get("start_date") or "", reverse=True)
+    return results[:max_results]
