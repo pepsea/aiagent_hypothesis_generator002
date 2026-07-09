@@ -85,14 +85,25 @@ def get_gwas_associations(gene_symbol: str, disease_query: str = None,
     return results[:max_results]
 
 
-def get_clinvar_variants(gene_symbol: str) -> list[dict]:
-    """Return ClinVar pathogenic variants for a gene via NCBI API (public domain)."""
+# ClinVar の trait_name にしばしば入るプレースホルダー（実際の疾患名ではない）
+_CLINVAR_NO_CONDITION = {"", "not provided", "not specified", "see cases"}
+
+
+def get_clinvar_variants(gene_symbol: str, max_results: int = 100) -> list[dict]:
+    """Return ClinVar pathogenic variants for a gene via NCBI API (public domain).
+
+    疾患名が分類されている（trait_name が実際の疾患名であり、"not provided"等の
+    プレースホルダーではない）レコードを中心に抽出する。候補を多めに取得して
+    フィルタしたうえで、最終評価日（last_evaluated）降順で直近優先に並べ、
+    最大 max_results 件（デフォルト100）を返す。
+    """
     import time
     base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
     query = f"{gene_symbol}[Gene Name] AND (Pathogenic[Clinical significance] OR Likely pathogenic[Clinical significance])"
 
+    # フィルタで減る分の余裕を持たせて多めに取得
     r = requests.get(f"{base}/esearch.fcgi", params={
-        "db": "clinvar", "term": query, "retmax": 100, "retmode": "json"
+        "db": "clinvar", "term": query, "retmax": max_results * 3, "retmode": "json"
     }, timeout=15)
     r.raise_for_status()
     ids = r.json().get("esearchresult", {}).get("idlist", [])
@@ -100,12 +111,12 @@ def get_clinvar_variants(gene_symbol: str) -> list[dict]:
     if not ids:
         return []
 
-    # 429対策: リトライ付きで esummary を呼ぶ
+    # 429対策: リトライ付きで esummary を呼ぶ（POST: ID数が多い場合のURL長対策）
     for attempt in range(3):
         time.sleep(1 + attempt * 2)  # 1s, 3s, 5s
-        r2 = requests.get(f"{base}/esummary.fcgi", params={
+        r2 = requests.post(f"{base}/esummary.fcgi", data={
             "db": "clinvar", "id": ",".join(ids), "retmode": "json"
-        }, timeout=15)
+        }, timeout=20)
         if r2.status_code == 429:
             continue
         r2.raise_for_status()
@@ -123,12 +134,17 @@ def get_clinvar_variants(gene_symbol: str) -> list[dict]:
         # 臨床的意義・レビュー状態・trait を格納する
         cls = item.get("germline_classification") or item.get("clinical_significance") or {}
         traits = cls.get("trait_set") or []
+        condition = traits[0].get("trait_name", "") if traits else ""
+        if condition.strip().lower() in _CLINVAR_NO_CONDITION:
+            continue  # 疾患名が分類されていないレコードは対象外
         variants.append({
             "variant_id": vid,
             "title": item.get("title", ""),
             "clinical_significance": cls.get("description", ""),
-            "condition": traits[0].get("trait_name", "") if traits else "",
+            "condition": condition,
             "review_status": cls.get("review_status", ""),
+            "last_evaluated": cls.get("last_evaluated", ""),
         })
 
-    return variants
+    variants.sort(key=lambda v: v.get("last_evaluated") or "", reverse=True)
+    return variants[:max_results]

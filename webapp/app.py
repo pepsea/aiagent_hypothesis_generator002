@@ -325,7 +325,8 @@ def _collector_data(key: str, result) -> dict | None:
                                "beta": h.get("or_beta", "")}
                               for h in result[:10]]}
         if key == "clinvar" and isinstance(result, list):
-            return {"variants": [{"name": v.get("title", "") or v.get("variant_id", ""),
+            return {"total": len(result),
+                    "variants": [{"name": v.get("title", "") or v.get("variant_id", ""),
                                    "variant_id": v.get("variant_id", ""),
                                    "significance": v.get("clinical_significance", "") or "—",
                                    "condition": v.get("condition", "") or "—",
@@ -357,7 +358,8 @@ def _collector_data(key: str, result) -> dict | None:
                     "cancer": result.get("cancer_expression", []),
                     "url": result.get("url", "")}
         if key == "dgidb" and isinstance(result, list):
-            return {"interactions": [{
+            return {"total": len(result),
+                    "interactions": [{
                         "drug": d.get("drug_name", ""),
                         # interactionTypes が空の DGIdb レコードが多いため
                         # directionality → sources の順にフォールバックして表示する
@@ -366,15 +368,17 @@ def _collector_data(key: str, result) -> dict | None:
                         "score": d.get("score"),
                         "sources": d.get("sources", []),
                         "pmids": d.get("pmids", []),
-                    } for d in result[:15]]}
+                    } for d in result[:100]]}
         if key == "clinicaltrials" and isinstance(result, list):
-            return {"trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
+            return {"total": len(result),
+                    "trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
                                  "status": t.get("status", ""),
                                  "nct_id": t.get("nct_id", ""),
                                  "url": t.get("url", ""),
+                                 "start_date": t.get("start_date", ""),
                                  # 取得データタブ表示専用（LLMコンテキストには含めない）
                                  "sponsor": t.get("sponsor", ""),
-                                 "collaborators": t.get("collaborators", [])} for t in result[:8]]}
+                                 "collaborators": t.get("collaborators", [])} for t in result[:100]]}
         if key == "alphafold" and isinstance(result, dict):
             return {"plddt": result.get("mean_plddt", result.get("plddt")),
                     "confidence": result.get("confidence", ""),

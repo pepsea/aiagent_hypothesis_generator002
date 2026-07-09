@@ -29,7 +29,7 @@ query($gene: String!) {
 """
 
 
-def get_interactions(gene_symbol: str, max_results: int = 20) -> list[dict]:
+def get_interactions(gene_symbol: str, max_results: int = 100) -> list[dict]:
     """Return drug-gene interactions from DGIdb."""
     try:
         r = requests.post(

@@ -1088,6 +1088,8 @@ function renderDataDetail(source, data) {
       return `<table class="data-table"><thead><tr><th>形質</th><th>バリアント</th><th>p値</th><th>Beta</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "clinvar" && data.variants) {
+      const note = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
+        疾患名が分類されているバリアントを中心に、最大100件を表示（該当 ${data.total ?? data.variants.length}件）。</p>`;
       const rows = data.variants.map(v => {
         const nameHtml = v.variant_id
           ? `<a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/${esc(v.variant_id)}/" target="_blank">${esc(v.name)}</a>`
@@ -1096,7 +1098,7 @@ function renderDataDetail(source, data) {
         <td>${nameHtml}</td><td>${esc(v.significance)}</td><td>${esc(v.condition)}</td>
         <td style="font-size:11px;color:var(--text-sub);">${esc(v.review||"")}</td></tr>`;
       }).join("");
-      return `<table class="data-table"><thead><tr><th>バリアント</th><th>臨床的意義</th><th>疾患</th><th>レビュー状況</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return note + `<table class="data-table"><thead><tr><th>バリアント</th><th>臨床的意義</th><th>疾患</th><th>レビュー状況</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "chembl" && data.drugs) {
       if (!data.drugs.length) return '<span style="color:var(--text-sub);font-size:13px;">承認薬・臨床候補なし（ChEMBL）</span>';
@@ -1166,6 +1168,8 @@ function renderDataDetail(source, data) {
         <table class="data-table"><thead><tr><th>がん種</th><th>器官</th><th>高/中/低/なし</th><th>高中率</th></tr></thead><tbody>${cancerRows}</tbody></table>`:""}`;
     }
     if (source === "clinicaltrials" && data.trials) {
+      const note = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
+        直近の試験を優先し、最大100件を表示（該当 ${data.total ?? data.trials.length}件）。</p>`;
       const rows = data.trials.map(t=>{
         const titleHtml = t.url
           ? `<a href="${esc(t.url)}" target="_blank">${esc(t.title)}</a>`
@@ -1175,9 +1179,10 @@ function renderDataDetail(source, data) {
         return `<tr><td>${titleHtml}</td>
         <td><span class="badge">${esc(t.phase||"N/A")}</span></td>
         <td>${esc(t.status)}</td>
+        <td style="font-size:11px;color:var(--text-sub);">${esc(t.start_date||"N/A")}</td>
         <td style="font-size:12px;">${esc(t.sponsor||"—")}${collabs}</td></tr>`;
       }).join("");
-      return `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th><th>スポンサー</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return note + `<table class="data-table"><thead><tr><th>試験名</th><th>Phase</th><th>状況</th><th>開始日</th><th>スポンサー</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "alphafold") {
       const plddt = (typeof data.plddt === "number") ? data.plddt.toFixed(1) : "N/A";
@@ -1242,8 +1247,10 @@ function renderDataDetail(source, data) {
         <td style="font-size:11px;color:var(--text-sub);">${esc(sources)}</td>
         <td style="font-size:11px;">${pmidLinks || "—"}</td></tr>`;
       }).join("");
+      const note = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
+        最大100件を表示（該当 ${data.total ?? data.interactions.length}件）。</p>`;
       return rows
-        ? `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th><th>スコア</th><th>ソース</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? note + `<table class="data-table"><thead><tr><th>薬剤</th><th>相互作用タイプ</th><th>スコア</th><th>ソース</th><th>PMID</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<span style="color:var(--text-sub)">インタラクションなし</span>';
     }
     if (source === "reactome" && data.pathways) {
