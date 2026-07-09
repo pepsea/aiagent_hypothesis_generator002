@@ -236,7 +236,7 @@ def collect_all(
 
 # デフォルトのコンテキスト設定
 DEFAULT_CONTEXT_CONFIG = dict(
-    max_papers       = 5,    # 論文数（PubMed）
+    max_papers       = 8,    # 論文数（PubMed、臨床妥当性/MoA妥当性に均等配分）
     abstract_chars   = 600,  # アブストラクト1件あたりの文字数
     max_drugs        = 8,    # 薬剤数（ChEMBL+OpenTargets合計）
     max_gwas         = 5,    # GWAS ヒット数
@@ -430,10 +430,16 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     )
 
     # ── Literature ─────────────────────────────────────────────────────────
+    # 論文は2つの妥当性軸で使う:
+    #   1. 臨床妥当性 (Clinical Validity)  — 実際にヒトで臨床試験が行われた実例
+    #      があるか（is_clinical=True の論文）
+    #   2. MoA妥当性 (Mechanistic Validity) — 標的と疾患を結びつける機序・機能
+    #      的根拠があるか（前臨床/機序論文, is_clinical=False）
+    # どちらか一方だけに偏らないよう、max_papers の枠を両カテゴリに配分する
+    # （臨床論文を優先しすぎると機序の説明が抜け落ちるため）。
     papers = ev.get("pubmed") or []
     if papers:
-        paper_blocks = []
-        for p in papers[:cfg["max_papers"]]:
+        def _paper_block(p):
             pmid     = p.get("pmid", "")
             title    = p.get("title", "")
             journal  = p.get("journal", "")
@@ -448,15 +454,37 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             ref = add_ref("paper", "Paper", short, full, url)
             snippet = _trunc_at_sentence(abstract, cfg["abstract_chars"]) \
                       if abstract else "(no abstract)"
-            study_tag = "[Clinical]" if p.get("is_clinical") else "[Preclinical]"
-            paper_blocks.append(
-                f"### {study_tag} {ref} {title[:80]} ({year})\n"
-                f"_{auth_str} | {journal}_\n"
-                f"{snippet}\n"
-            )
-        note = (f"_Showing {len(paper_blocks)} of top {len(papers)} most-recent PubMed hits "
-                f"(clinical studies prioritized; preclinical shown only if clinical evidence is scarce)._\n")
-        sections.append("## Literature\n\n" + note + "\n".join(paper_blocks))
+            return f"### {ref} {title[:80]} ({year})\n_{auth_str} | {journal}_\n{snippet}\n"
+
+        clinical_papers = [p for p in papers if p.get("is_clinical")]
+        moa_papers      = [p for p in papers if not p.get("is_clinical")]
+        half = max(1, cfg["max_papers"] // 2)
+        clin_pick = clinical_papers[:half]
+        moa_pick  = moa_papers[:cfg["max_papers"] - len(clin_pick)]
+        # 片方が枠に満たない場合はもう片方の枠を広げて埋める
+        if len(clin_pick) < half:
+            moa_pick = moa_papers[:cfg["max_papers"] - len(clin_pick)]
+        elif len(moa_pick) < cfg["max_papers"] - half:
+            clin_pick = clinical_papers[:cfg["max_papers"] - len(moa_pick)]
+
+        blocks = ["## Literature\n"]
+        blocks.append(
+            f"_Pool: top {len(papers)} most-recent PubMed hits with gene+disease keyword match "
+            f"({len(clinical_papers)} clinical, {len(moa_papers)} preclinical/mechanistic)._\n"
+        )
+        blocks.append(
+            f"### Clinical Validity — evidence of actual clinical trial/patient precedent "
+            f"({len(clin_pick)} shown)\n"
+        )
+        blocks.append("\n".join(_paper_block(p) for p in clin_pick) if clin_pick
+                       else "_No clinical-stage literature found for this gene×disease pair._\n")
+        blocks.append(
+            f"### MoA Validity — mechanistic/functional rationale linking target to disease "
+            f"({len(moa_pick)} shown)\n"
+        )
+        blocks.append("\n".join(_paper_block(p) for p in moa_pick) if moa_pick
+                       else "_No mechanistic literature found beyond the clinical papers above._\n")
+        sections.append("\n".join(blocks))
 
     # ── gnomAD ────────────────────────────────────────────────────────────
     gnom = ev.get("gnomad") or {}

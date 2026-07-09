@@ -1000,14 +1000,16 @@ function renderDataDetail(source, data) {
   try {
     if (source === "pubmed" && data.papers) {
       const nClin = data.papers.filter(p => p.is_clinical).length;
+      const nMoa  = data.papers.length - nClin;
       const summary = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
-        直近の論文 最大トップ100件を表示（臨床研究を優先、該当 ${nClin}/${data.papers.length} 件。臨床研究が少ない場合は非臨床＝in vitro／動物モデル等の論文で補っています）。</p>`;
-      return summary + data.papers.map(p => `
+        直近の論文 最大トップ100件を表示。<strong>臨床妥当性</strong>（臨床試験・患者データの実施例 ${nClin}件）と
+        <strong>MoA妥当性</strong>（標的-疾患の機序・機能的根拠 ${nMoa}件）の両観点で使用します。</p>`;
+      const paperHtml = p => `
         <div style="margin-bottom:12px;padding:10px;border:1px solid var(--border);border-radius:7px;">
           <div style="font-weight:600;font-size:13px;">
             ${p.is_clinical
-              ? '<span class="badge" style="background:#dcfce7;color:#166534;">臨床</span> '
-              : '<span class="badge" style="background:#f1f5f9;color:#475569;">非臨床</span> '}
+              ? '<span class="badge" style="background:#dcfce7;color:#166534;">臨床妥当性</span> '
+              : '<span class="badge" style="background:#e0e7ff;color:#3730a3;">MoA妥当性</span> '}
             ${esc(p.title)}
           </div>
           <div style="font-size:11px;color:var(--text-sub);margin:3px 0;">${esc(p.journal)} ${p.year}
@@ -1015,7 +1017,8 @@ function renderDataDetail(source, data) {
             ${(p.pub_types||[]).length ? `· ${esc(p.pub_types.join(", "))}` : ""}
           </div>
           <div class="abstract-text">${esc(p.abstract)}${p.abstract ? "..." : ""}</div>
-        </div>`).join("");
+        </div>`;
+      return summary + data.papers.map(paperHtml).join("");
     }
     if (source === "opentargets" && data) {
       const otLinks = [];
