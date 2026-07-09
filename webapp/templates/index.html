@@ -1081,8 +1081,11 @@ function renderDataDetail(source, data) {
         const variantHtml = rsids.length
           ? rsids.map(rs => `<a href="https://www.ncbi.nlm.nih.gov/snp/${esc(rs)}" target="_blank"><code>${esc(rs)}</code></a>`).join(", ")
           : esc(h.variant);
+        const traitHtml = h.gwas_url
+          ? `<a href="${esc(h.gwas_url)}" target="_blank">${esc(h.trait)}</a>`
+          : esc(h.trait);
         return `<tr>
-        <td>${esc(h.trait)}</td><td>${variantHtml}</td>
+        <td>${traitHtml}</td><td>${variantHtml}</td>
         <td class="pval">${h.pvalue}</td><td>${h.beta||""}</td></tr>`;
       }).join("");
       return `<table class="data-table"><thead><tr><th>形質</th><th>バリアント</th><th>p値</th><th>Beta</th></tr></thead><tbody>${rows}</tbody></table>`;

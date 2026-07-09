@@ -342,12 +342,13 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     if gwas_hits:
         lines = []
         for h in gwas_hits[:cfg["max_gwas"]]:
-            sid  = h.get("study_id", "")
-            year = (h.get("pub_date") or "")[:4]
-            auth = h.get("first_author", "")
-            url  = f"https://www.ebi.ac.uk/gwas/studies/{sid}" if sid else "https://www.ebi.ac.uk/gwas/"
-            short = f"{auth} et al. GWAS Catalog {sid} {year}. {url}"
-            full  = (f"{auth} et al. GWAS Catalog Study {sid}: {h.get('trait','')}. {year}. "
+            # collectors/gwas.py が返す個々の association には study_id/pub_date/
+            # first_author は含まれない（GWAS Catalog API がSNPアソシエーション単位
+            # では返さないため）。実際にリンク先として使えるのは efoTraits 経由で
+            # 取得した trait ページ URL (gwas_url) のみ。
+            url  = h.get("gwas_url") or "https://www.ebi.ac.uk/gwas/"
+            short = f"GWAS Catalog: {h.get('trait','')}. {url}"
+            full  = (f"GWAS Catalog — {h.get('trait','')}. "
                      f"Buniello A et al. Nucleic Acids Res. 2019;47(D1):D1005-D1012. {url}")
             ref = add_ref("disease", "GWAS", short, full, url)
             snps = ", ".join(h.get("snps", [])[:2])

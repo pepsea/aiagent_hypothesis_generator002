@@ -322,7 +322,8 @@ def _collector_data(key: str, result) -> dict | None:
                                "pvalue": h.get("p_value", ""),
                                "variant": ", ".join(h.get("snps", [])),
                                "rsids": h.get("snps", []),
-                               "beta": h.get("or_beta", "")}
+                               "beta": h.get("or_beta", ""),
+                               "gwas_url": h.get("gwas_url", "")}
                               for h in result[:10]]}
         if key == "clinvar" and isinstance(result, list):
             return {"total": len(result),

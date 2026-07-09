@@ -21,12 +21,17 @@ def _fetch_snp_hits(snp: dict) -> list[dict]:
     hits = []
     for assoc in associations:
         trait = ""
+        gwas_url = ""
         tl = (assoc.get("_links", {}).get("efoTraits") or {}).get("href")
         if tl:
             try:
                 rt = requests.get(tl, timeout=8)
                 traits = rt.json().get("_embedded", {}).get("efoTraits", [])
                 trait = ", ".join(t.get("trait", "") for t in traits if t.get("trait"))
+                # GWAS Catalog の trait ページ（当該形質の全アソシエーション一覧）にリンク
+                first_efo = next((t.get("shortForm") for t in traits if t.get("shortForm")), None)
+                if first_efo:
+                    gwas_url = f"https://www.ebi.ac.uk/gwas/efotraits/{first_efo}"
             except Exception:
                 pass
         hits.append({
@@ -35,6 +40,7 @@ def _fetch_snp_hits(snp: dict) -> list[dict]:
             "or_beta":               assoc.get("orPerCopyNum") or assoc.get("betaNum"),
             "snps":                  [rsid],
             "risk_allele_frequency": assoc.get("riskFrequency"),
+            "gwas_url":              gwas_url,
         })
     return hits
 
