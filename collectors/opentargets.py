@@ -4,6 +4,13 @@
 主な変更点:
   knownDrugs → drugAndClinicalCandidates
   maximumClinicalTrialPhase → maximumClinicalStage
+
+enableIndirect: false で固定している。true にすると、オントロジー階層を
+辿った間接エビデンスまで合算されるため、直接的な根拠が薄い疾患のスコアが
+不自然に底上げされる（例: BACE1 で true にすると Alzheimer disease の
+score が 0.42 (direct) → 0.91 (indirect込み) に跳ね上がり、Parkinson disease
+(0.92) 等の無関係な疾患に順位で負けてしまう）。false にすると疾患方向
+(disease→targets) と標的方向 (target→diseases) のスコアも一致する。
 """
 import requests
 
@@ -16,7 +23,7 @@ query($ensgId: String!) {
     approvedName
     biotype
     functionDescriptions
-    associatedDiseases(enableIndirect: true, page: {index: 0, size: 20}) {
+    associatedDiseases(enableIndirect: false, page: {index: 0, size: 20}) {
       rows {
         disease { id name }
         score
@@ -39,7 +46,7 @@ query($efoId: String!) {
   disease(efoId: $efoId) {
     id
     name
-    associatedTargets(enableIndirect: true, page: {index: 0, size: 500}) {
+    associatedTargets(enableIndirect: false, page: {index: 0, size: 500}) {
       rows {
         target { id approvedSymbol }
         score
@@ -133,12 +140,15 @@ def get_target_disease_evidence(
         if not isinstance(row, dict):
             continue
         drug = row.get("drug") or {}
-        # "disease" フィールドが null の場合に備えて `or {}` でガード
+        # "disease" フィールドが null のエントリが先頭に来ることがあり（実際に
+        # TP53 の TEPRASIRAN 等で確認）、フィルタせず diseases[0] を使うと
+        # 実際は適応疾患があるのに空欄表示になってしまうため、null/空文字を除外する
         diseases = [
             (d.get("disease") or {}).get("name", "")
             for d in (row.get("diseases") or [])
             if isinstance(d, dict)
         ]
+        diseases = [d for d in diseases if d]
         known_drugs.append({
             "drug":      drug.get("name", ""),
             "max_phase": row.get("maxClinicalStage") or drug.get("maximumClinicalStage"),

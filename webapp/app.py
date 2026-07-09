@@ -171,7 +171,10 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         if isinstance(result, dict):
             score = result.get("association_score") or 0
             dt = result.get("datatype_scores") or {}
-            gen = dt.get("genetic_association") or dt.get("genetic_literature") or 0
+            # genetic_association (GWAS/ClinVar等の遺伝的根拠) が無ければ 0。
+            # genetic_literature（別のデータタイプ）で代用すると異なる根拠を
+            # 「遺伝的」として誤表示してしまうため代用しない。
+            gen = dt.get("genetic_association") or 0
             n_drugs = len(result.get("known_drugs") or [])
             return (f"関連スコア {float(score):.3f} / 遺伝的 {float(gen):.3f} / 薬剤 {n_drugs} 件")
         return "取得済み"
@@ -259,7 +262,8 @@ def _collector_data(key: str, result) -> dict | None:
                 "disease_id": result.get("disease_id", ""),
                 "association_score": result.get("association_score"),
                 "datatype_scores": dt,
-                "genetic_score": dt.get("genetic_association") or dt.get("genetic_literature"),
+                # genetic_literature を代用しない（別データタイプの誤表示防止、上の理由と同じ）
+                "genetic_score": dt.get("genetic_association"),
                 "drugs": [{"name": d.get("drug","") or d.get("drug_name",""),
                            "phase": d.get("max_phase","") or d.get("maxClinicalStage",""),
                            "indication": d.get("disease","") or d.get("indication","")}
