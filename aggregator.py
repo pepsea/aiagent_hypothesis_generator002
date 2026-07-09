@@ -41,7 +41,8 @@ def _result_summary(key: str, result, err: str) -> tuple:
     try:
         if key == "pubmed":
             n = len(result) if isinstance(result, list) else 0
-            return "✓", f"{n} 件"
+            n_clin = sum(1 for p in result if p.get("is_clinical")) if isinstance(result, list) else 0
+            return "✓", f"{n} 件 (臨床 {n_clin} 件)"
         if key == "opentargets":
             score = result.get("association_score")
             n_drugs = len(result.get("known_drugs", []))
@@ -145,7 +146,7 @@ def collect_all(
 
     tasks = {
         "pubmed":          lambda: pubmed.search_pubmed(
-                               gene, disease, max_results=8,
+                               gene, disease, max_results=12,
                                disease_efo_id=disease_id),
         "opentargets":     lambda: opentargets.get_target_disease_evidence(
                                gene, disease, gene_id=gene_id, disease_id=disease_id),
@@ -447,8 +448,9 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             ref = add_ref("paper", "Paper", short, full, url)
             snippet = _trunc_at_sentence(abstract, cfg["abstract_chars"]) \
                       if abstract else "(no abstract)"
+            study_tag = "[Clinical]" if p.get("is_clinical") else "[Preclinical]"
             paper_blocks.append(
-                f"### {ref} {title[:80]} ({year})\n"
+                f"### {study_tag} {ref} {title[:80]} ({year})\n"
                 f"_{auth_str} | {journal}_\n"
                 f"{snippet}\n"
             )

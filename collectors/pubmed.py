@@ -23,6 +23,24 @@ from typing import Optional
 
 BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
+# PubMed Publication Type のうち「臨床（ヒトでの研究）」とみなすもの。
+# これに該当しない論文（in vitro/動物モデル/総説/基礎研究等）は非臨床として扱う。
+# "Comparative Study" は動物実験の群間比較にも routine に付与されるため対象外
+# （ヒト臨床研究であることを保証しない）。"Meta-Analysis" も対象論文の種類を
+# 保証しないため除外。
+CLINICAL_PUBTYPES = {
+    "clinical trial", "clinical trial, phase i", "clinical trial, phase ii",
+    "clinical trial, phase iii", "clinical trial, phase iv",
+    "controlled clinical trial", "randomized controlled trial",
+    "pragmatic clinical trial", "adaptive clinical trial",
+    "observational study", "multicenter study", "case reports",
+}
+
+
+def _is_clinical(pub_types: list[str]) -> bool:
+    """pubtype リストに臨床研究を示す種別が含まれるか判定する。"""
+    return any((pt or "").lower() in CLINICAL_PUBTYPES for pt in (pub_types or []))
+
 # MeSH クエリ用ヘッダー（MeSH の見出し語順 "Dystrophy, Duchenne Muscular" など）を保持
 _mesh_heading_cache: dict[str, str] = {}
 
@@ -267,6 +285,14 @@ def search_pubmed(
         terms = [_q_term(s) for s in disease_syns[:max_syn + 1]]
         return "(" + " OR ".join(terms) + ")"
 
+    def _q_clinical_types() -> str:
+        return "(" + " OR ".join(f'"{t}"[Publication Type]' for t in [
+            "Clinical Trial", "Clinical Trial, Phase I", "Clinical Trial, Phase II",
+            "Clinical Trial, Phase III", "Clinical Trial, Phase IV",
+            "Controlled Clinical Trial", "Randomized Controlled Trial",
+            "Observational Study", "Multicenter Study", "Case Reports",
+        ]) + ")"
+
     def _search(term: str) -> list[str]:
         try:
             r = requests.get(f"{BASE}/esearch.fcgi", params={
@@ -279,8 +305,15 @@ def search_pubmed(
         except Exception:
             return []
 
-    # ── 段階的クエリ（Tier 1 → 5） ───────────────────────────────────────────
+    # ── 段階的クエリ（Tier 0 → 5） ───────────────────────────────────────────
     queries = [
+        # Tier 0: 臨床研究を明示的に検索する。
+        # 他のTierは全て sort=pub+date で「直近の論文」を優先的に取得するため、
+        # 対象が昔に活発だった薬剤（例: BACE1阻害薬治験は2016-2019年が中心）の場合、
+        # 近年の基礎研究論文に押し出され、臨床試験論文がそもそも候補プールに
+        # 入らないことがある。臨床研究に限定した検索を別立てで行うことで、
+        # 発表時期に関わらず臨床論文を確実に候補へ含める。
+        f'{_q_gene_syns(max_syn=8)} AND {_q_disease_text(max_syn=4)} AND {_q_clinical_types()}',
         # Tier 1: 遺伝子フィールド × MeSH（最も精度が高い）
         f'"{gene}"[Gene/Protein Name] AND {_q_disease_mesh()}',
         # Tier 2: 公式シンボル × MeSH（新着論文もカバー）
@@ -324,6 +357,7 @@ def search_pubmed(
         if pmid not in result:
             continue
         item = result[pmid]
+        pub_types = item.get("pubtype") or []
         papers.append({
             "pmid":            pmid,
             "title":           item.get("title", ""),
@@ -333,13 +367,16 @@ def search_pubmed(
             "abstract":        "",
             "relevance_score": 0,
             "match_type":      "",
+            "pub_types":       pub_types,
+            "is_clinical":     _is_clinical(pub_types),
         })
 
     # ── アブストラクト取得 & スコアリング ─────────────────────────────────────
     _score_papers(papers, gene, gene_syns, disease, disease_syns)
 
-    # score 降順 → year 降順
-    papers.sort(key=lambda p: (p["relevance_score"], p["year"]), reverse=True)
+    # 臨床研究を優先し（is_clinical 降順）、その中で関連度→年の順に並べる。
+    # 臨床研究が指定件数に満たない場合のみ非臨床論文で埋める。
+    papers.sort(key=lambda p: (p["is_clinical"], p["relevance_score"], p["year"]), reverse=True)
 
     return papers[:max_results]
 

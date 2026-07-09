@@ -166,7 +166,8 @@ def _collector_summary(key: str, result, err: str | None) -> str:
     if result is None:
         return "データなし"
     if key == "pubmed":
-        return f"{len(result)} 件の論文"
+        n_clin = sum(1 for p in result if p.get("is_clinical")) if isinstance(result, list) else 0
+        return f"{len(result)} 件の論文 (臨床 {n_clin} 件)"
     if key == "opentargets":
         if isinstance(result, dict):
             score = result.get("association_score") or 0
@@ -252,7 +253,9 @@ def _collector_data(key: str, result) -> dict | None:
         if key == "pubmed" and isinstance(result, list):
             return {"papers": [{"title": p.get("title", ""), "journal": p.get("journal", ""),
                                  "year": p.get("year", ""), "pmid": p.get("pmid", ""),
-                                 "abstract": (p.get("abstract", "") or "")[:300]} for p in result[:8]]}
+                                 "is_clinical": p.get("is_clinical", False),
+                                 "pub_types": p.get("pub_types", []),
+                                 "abstract": (p.get("abstract", "") or "")[:300]} for p in result]}
         if key == "opentargets" and isinstance(result, dict):
             dt = result.get("datatype_scores") or {}
             drugs = result.get("known_drugs") or []
@@ -463,7 +466,7 @@ def analyze():
 
             # ── 1. Parallel data collection with per-collector SSE events ──────
             COLLECTORS = {
-                "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=8, disease_efo_id=disease_id),
+                "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=12, disease_efo_id=disease_id),
                 "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
                 "uniprot":        lambda: uniprot.get_protein_info(gene),
             }
