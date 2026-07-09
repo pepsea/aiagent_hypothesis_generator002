@@ -156,6 +156,8 @@ def _save_report(gene, disease, lang, hypothesis, context,
         generated_iso=datetime.now().isoformat(),
         ppi_section=ppi_section,
         enrichment_section=report.enrichment_md(enrichment),
+        competitive_section=report.competitive_landscape_md(
+            evidence.get("evidence", {}).get("clinicaltrials")),
     )
     rpt_path = pair_dir / f"{ts}_{'JA' if lang == 'ja' else 'EN'}.md"
     rpt_path.write_text(md, encoding="utf-8")

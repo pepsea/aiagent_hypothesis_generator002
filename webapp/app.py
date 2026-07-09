@@ -466,7 +466,7 @@ def analyze():
 
             # ── 1. Parallel data collection with per-collector SSE events ──────
             COLLECTORS = {
-                "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=12, disease_efo_id=disease_id),
+                "pubmed":         lambda: pubmed.search_pubmed(gene, disease_name, max_results=100, disease_efo_id=disease_id),
                 "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
                 "uniprot":        lambda: uniprot.get_protein_info(gene),
             }
@@ -690,6 +690,7 @@ def analyze():
                 generated_iso=datetime.now().isoformat(),
                 ppi_section=ppi_section,
                 enrichment_section=rpt.enrichment_md(enrichment),
+                competitive_section=rpt.competitive_landscape_md(results.get("clinicaltrials")),
                 model=model,
             )
             suffix = "JA" if lang == "ja" else "EN"

@@ -105,6 +105,52 @@ def enrichment_md(enrichment: dict, top_per_source: int = 5) -> str:
     return "\n".join(lines)
 
 
+def competitive_landscape_md(trials: list[dict] | None, top_n: int = 30) -> str:
+    """ClinicalTrials.gov の試験一覧を「競合状況（新規参入リスク）」として整形する。
+
+    試験数が多いほど同一標的・疾患を狙う競合が多い＝新規参入のリスクが高い
+    ことを示す簡易的な目安を付与する。件数の上限は設けず全件を対象に集計し、
+    表には直近の試験を優先して表示する（全件は表内に収まらない場合がある）。
+    """
+    trials = trials or []
+    if not trials:
+        return ""
+
+    n = len(trials)
+    if n >= 10:
+        risk = "高（同一標的・疾患を狙う試験が多数 → 新規参入のハードルが高い）"
+    elif n >= 3:
+        risk = "中（一定数の競合試験があり、差別化戦略が必要）"
+    else:
+        risk = "低〜不明（競合試験は少ないが、対象が新規性の高い領域である可能性）"
+
+    active_statuses = {"Recruiting", "Active (not recruiting)", "Not yet recruiting",
+                       "Enrolling by invitation"}
+    n_active = sum(1 for t in trials if t.get("status") in active_statuses)
+
+    lines = [
+        "## Competitive Landscape (ClinicalTrials.gov)",
+        "",
+        f"- 総試験数: {n} 件（進行中/募集中: {n_active} 件）",
+        f"- 新規参入リスク: {risk}",
+        "",
+        f"### 試験一覧（直近 {min(top_n, n)} 件 / 全{n}件中）",
+        "",
+        "| NCT ID | 開始日 | Phase | 状況 | スポンサー |",
+        "|---|---|---|---|---|",
+    ]
+    for t in trials[:top_n]:
+        nct = t.get("nct_id", "")
+        url = t.get("url") or (f"https://clinicaltrials.gov/study/{nct}" if nct else "")
+        nct_link = f"[{nct}]({url})" if url else nct
+        lines.append(
+            f"| {nct_link} | {t.get('start_date','') or 'N/A'} | {t.get('phase','N/A')} "
+            f"| {t.get('status','')} | {t.get('sponsor','') or 'N/A'} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def ppi_md(gene: str, image_filename: str, partners: list[str] | None = None,
            functions: dict | None = None) -> str:
     """PPI ネットワーク画像 + パートナー遺伝子リスト + 機能情報の Markdown セクション。
@@ -163,6 +209,7 @@ def build_report(
     generated_iso: str,
     ppi_section: str = "",
     enrichment_section: str = "",
+    competitive_section: str = "",
     references_section: str = "",
     model: str = "",
 ) -> str:
@@ -178,12 +225,14 @@ def build_report(
         "", "---", "",
         hypothesis_clean, "",
     ]
-    if ppi_section or enrichment_section:
+    if ppi_section or enrichment_section or competitive_section:
         parts += ["---", "", "## Supporting Evidence", ""]
         if ppi_section:
             parts.append(ppi_section)
         if enrichment_section:
             parts.append(enrichment_section)
+        if competitive_section:
+            parts.append(competitive_section)
     if references_section:
         parts += ["---", "", references_section, ""]
     parts += ["---", "", "## Evidence Context", "", context]

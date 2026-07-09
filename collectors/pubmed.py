@@ -233,7 +233,7 @@ def get_disease_synonyms(disease: str, efo_id: str = None) -> tuple[list[str], s
 def search_pubmed(
     gene: str,
     disease: str,
-    max_results: int = 10,
+    max_results: int = 100,
     disease_efo_id: str = None,
 ) -> list[dict]:
     """Return top PubMed abstracts scored by synonym-aware relevance.
@@ -242,8 +242,14 @@ def search_pubmed(
     ----------
     gene            : HGNC gene symbol
     disease         : disease name (from OpenTargets or user input)
-    max_results     : number of papers to return (after scoring)
+    max_results     : number of papers to return (after scoring). Default
+                      100 — display/report should note this is a "top 100,
+                      most recent" list, not an exhaustive one.
     disease_efo_id  : EFO/MONDO ID for richer disease synonym lookup
+
+    論文抽出は「疾患名と遺伝子名（シノニム含む）がタイトルまたはアブストラクトに
+    記載されている」ものを中心とする。score==0（MeSH等の間接一致のみで、
+    タイトル/アブストラクトに実際の語が出てこない「内容参照」papers）は除外する。
     """
 
     # ── シノニム取得 ─────────────────────────────────────────────────────────
@@ -344,8 +350,8 @@ def search_pubmed(
 
     time.sleep(0.4)
 
-    # ── サマリー取得（最大60件） ──────────────────────────────────────────────
-    fetch_ids = all_ids[:60]
+    # ── サマリー取得 ──────────────────────────────────────────────────────────
+    fetch_ids = all_ids[:min(max_results * 3, 300)]
     r = requests.post(f"{BASE}/esummary.fcgi", data={
         "db": "pubmed", "id": ",".join(fetch_ids), "retmode": "json",
     }, timeout=20)
@@ -373,6 +379,10 @@ def search_pubmed(
 
     # ── アブストラクト取得 & スコアリング ─────────────────────────────────────
     _score_papers(papers, gene, gene_syns, disease, disease_syns)
+
+    # score==0（タイトル/アブストラクトに遺伝子名・疾患名いずれかの実際の語が
+    # 出てこない「内容参照」papers、MeSH等の間接一致のみ）は対象外にする。
+    papers = [p for p in papers if p["relevance_score"] > 0]
 
     # 臨床研究を優先し（is_clinical 降順）、その中で関連度→年の順に並べる。
     # 臨床研究が指定件数に満たない場合のみ非臨床論文で埋める。

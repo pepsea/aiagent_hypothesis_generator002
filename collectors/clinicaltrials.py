@@ -2,10 +2,14 @@
 
 進行中・完了済み試験から競合状況・有効性シグナルを取得。
 API v2: https://clinicaltrials.gov/api/v2/studies
+
+試験件数そのものが競合状況の指標になるため（同じ標的・疾患を狙う治験が
+多いほど新規参入のリスクが高い）、表示・取得件数に上限は設けず全件取得する。
 """
 import requests
 
 CT_API = "https://clinicaltrials.gov/api/v2/studies"
+MAX_PAGES = 20  # 1ページ1000件 × 20 = 最大2万件（安全上限、通常は数ページで尽きる）
 
 STATUS_LABEL = {
     "RECRUITING":              "Recruiting",
@@ -19,22 +23,33 @@ STATUS_LABEL = {
 }
 
 
-def _search(params: dict, max_results: int) -> list[dict]:
-    """1回分の studies 検索 → 整形済みレコードのリストを返す（失敗時は空）。"""
-    params = {
+def _search(params: dict) -> list[dict]:
+    """該当する studies を全ページ取得 → 整形済みレコードのリストを返す（失敗時は空）。"""
+    base_params = {
         **params,
-        "pageSize": min(max_results * 2, 100),
+        "pageSize": 1000,
         "format":   "json",
         "fields":   "NCTId,BriefTitle,OverallStatus,Phase,StartDate,"
                     "Condition,InterventionName,InterventionType,"
                     "LeadSponsorName,CollaboratorName",
     }
+
+    studies = []
+    page_token = None
     try:
-        r = requests.get(CT_API, params=params, timeout=20)
-        r.raise_for_status()
-        studies = r.json().get("studies", [])
+        for _ in range(MAX_PAGES):
+            p = dict(base_params)
+            if page_token:
+                p["pageToken"] = page_token
+            r = requests.get(CT_API, params=p, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+            studies.extend(data.get("studies", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
     except Exception:
-        return []
+        pass  # ここまでに取得できた分は活かす
 
     results = []
     for s in studies:
@@ -77,10 +92,9 @@ def _search(params: dict, max_results: int) -> list[dict]:
 def get_trials(
     gene_symbol: str,
     disease: str,
-    max_results: int = 10,
     drug_names: list[str] | None = None,
 ) -> list[dict]:
-    """Return clinical trials related to a gene-disease pair.
+    """Return ALL clinical trials related to a gene-disease pair (no cap).
 
     Runs two searches and merges/dedupes the results, because a single
     field can't catch everything:
@@ -96,13 +110,16 @@ def get_trials(
          atabecestat, ...) than the gene-symbol search does, because most
          BACE1 inhibitor trials never mention "BACE1" in any searchable
          field.
+
+    件数の上限は設けない（試験数自体が競合の激しさ＝新規参入リスクの指標に
+    なるため）。直近の試験を先頭にして返す。
     Returns:
         [{nct_id, title, status, phase, start_date, conditions,
           interventions, url}]
     """
     by_nct: dict[str, dict] = {}
 
-    for r in _search({"query.cond": disease, "query.term": gene_symbol}, max_results):
+    for r in _search({"query.cond": disease, "query.term": gene_symbol}):
         by_nct[r["nct_id"]] = r
 
     drug_names = [d for d in (drug_names or []) if d and d.strip()]
@@ -112,10 +129,10 @@ def get_trials(
         for i in range(0, len(drug_names), CHUNK):
             chunk = drug_names[i:i + CHUNK]
             intr_query = " OR ".join(chunk)
-            for r in _search({"query.cond": disease, "query.intr": intr_query}, max_results):
+            for r in _search({"query.cond": disease, "query.intr": intr_query}):
                 by_nct[r["nct_id"]] = r
 
     results = list(by_nct.values())
     # 直近の試験を優先（開始日降順、日付不明は末尾）
     results.sort(key=lambda r: r.get("start_date") or "", reverse=True)
-    return results[:max_results]
+    return results

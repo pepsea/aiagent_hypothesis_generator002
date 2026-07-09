@@ -146,7 +146,7 @@ def collect_all(
 
     tasks = {
         "pubmed":          lambda: pubmed.search_pubmed(
-                               gene, disease, max_results=12,
+                               gene, disease, max_results=100,
                                disease_efo_id=disease_id),
         "opentargets":     lambda: opentargets.get_target_disease_evidence(
                                gene, disease, gene_id=gene_id, disease_id=disease_id),
@@ -242,7 +242,7 @@ DEFAULT_CONTEXT_CONFIG = dict(
     max_gwas         = 5,    # GWAS ヒット数
     max_clinvar      = 5,    # ClinVar バリアント数
     max_interactions = 10,   # PPI インタラクター数
-    max_trials       = 6,    # 臨床試験数
+    max_trials       = 10,   # 臨床試験数（context に含める直近件数。全件数自体は別途表示）
     max_reactome     = 10,   # Reactome パスウェイ数
     gtex_top_n       = 5,    # GTEx 上位組織数
     hpa_top_n        = 8,    # HPA 組織数
@@ -454,7 +454,9 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
                 f"_{auth_str} | {journal}_\n"
                 f"{snippet}\n"
             )
-        sections.append("## Literature\n\n" + "\n".join(paper_blocks))
+        note = (f"_Showing {len(paper_blocks)} of top {len(papers)} most-recent PubMed hits "
+                f"(clinical studies prioritized; preclinical shown only if clinical evidence is scarce)._\n")
+        sections.append("## Literature\n\n" + note + "\n".join(paper_blocks))
 
     # ── gnomAD ────────────────────────────────────────────────────────────
     gnom = ev.get("gnomad") or {}
@@ -523,7 +525,11 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             f"- {len(dgi_data)} interactions ({len(approved)} approved): {rows}\n"
         )
 
-    # ── ClinicalTrials ────────────────────────────────────────────────────
+    # ── ClinicalTrials（競合状況＝新規参入リスクの指標として使用） ──────────────
+    # 件数に上限は設けず全件取得しているため、ここでの trial 数は競合の激しさを
+    # 直接反映する。LLM には「試験数が多いほど新規参入リスクが高い」という
+    # 読み方を明示し、context には直近の試験を優先して渡す（ct_data は
+    # collectors/clinicaltrials.py で開始日降順に既にソート済み）。
     ct_data = ev.get("clinicaltrials") or []
     if ct_data:
         url   = f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&term={gene}"
@@ -531,12 +537,16 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         full  = f"ClinicalTrials.gov. U.S. NLM. {short}"
         ref   = add_ref("disease", "ClinicalTrials", short, full, url)
         rows  = " | ".join(
-            f"{t['nct_id']}({t['phase']},{t['status'][:8]})"
+            f"{t['nct_id']}({t['phase']},{t['status'][:8]},{t.get('start_date','') or 'N/A'})"
             for t in ct_data[:cfg["max_trials"]]
         )
+        n = len(ct_data)
+        risk = "HIGH" if n >= 10 else ("MODERATE" if n >= 3 else "LOW")
         sections.append(
-            f"## Clinical Trials {ref}\n"
-            f"- {len(ct_data)} trials: {rows}\n"
+            f"## Competitive Landscape {ref}\n"
+            f"- Total trials for this target×disease: {n}  →  new-entrant risk: {risk} "
+            f"(more competing trials = harder to differentiate / higher risk)\n"
+            f"- Most recent {min(cfg['max_trials'], n)} trials: {rows}\n"
         )
 
     # ── AlphaFold ─────────────────────────────────────────────────────────

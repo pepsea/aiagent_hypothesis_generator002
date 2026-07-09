@@ -1001,7 +1001,7 @@ function renderDataDetail(source, data) {
     if (source === "pubmed" && data.papers) {
       const nClin = data.papers.filter(p => p.is_clinical).length;
       const summary = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
-        臨床研究を優先表示（該当 ${nClin}/${data.papers.length} 件）。臨床研究が少ない場合は非臨床（in vitro／動物モデル等）の論文で補っています。</p>`;
+        直近の論文 最大トップ100件を表示（臨床研究を優先、該当 ${nClin}/${data.papers.length} 件。臨床研究が少ない場合は非臨床＝in vitro／動物モデル等の論文で補っています）。</p>`;
       return summary + data.papers.map(p => `
         <div style="margin-bottom:12px;padding:10px;border:1px solid var(--border);border-radius:7px;">
           <div style="font-weight:600;font-size:13px;">
