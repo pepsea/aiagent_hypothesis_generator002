@@ -1,0 +1,13 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+.DS_Store
+.ipynb_checkpoints
+reports/
+reports_old/
+ppi_cache/
+*.ipynb
+venv/
+.venv/
+.env

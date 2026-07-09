@@ -677,6 +677,22 @@ def analyze():
             (pair_dir / f"{ts}_raw.json").write_text(
                 json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
+            # 使用したモデル・PPI設定等のメタ情報（履歴一覧での表示用）
+            run_meta = {
+                "model": model,
+                "lang": lang,
+                "disease_id": disease_id,
+                "ppi_sources": (["signor"] if use_signor else [])
+                               + (["string"] if use_string else [])
+                               + (["biogrid"] if use_biogrid_sel else []),
+                "string_score": string_score,
+                "min_score": min_score,
+                "hub_threshold": hub_threshold,
+                "max_nodes": max_nodes,
+            }
+            (pair_dir / f"{ts}_meta.json").write_text(
+                json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
             # 機能情報を {gene, protein_name, function} のリストに整形（対象を先頭）
             func_order = [gene.upper()] + [p for p in partners if p.upper() != gene.upper()]
             partner_functions = []
@@ -783,12 +799,25 @@ def history():
                 if md:
                     suffix = md.stem.rsplit("_", 1)[-1]
                     lang = suffix if suffix in ("JA", "EN") else ""
+                meta = {}
+                meta_path = d / f"{ts}_meta.json"
+                if meta_path.exists():
+                    try:
+                        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        meta = {}
                 entries.append({
                     "dir": d.name,
                     "timestamp": ts,
                     "lang": lang,
                     "snapshot_url": f"/reports/{d.name}/{snap.name}" if snap else None,
                     "md_url": f"/reports/{d.name}/{md.name}" if md else None,
+                    "model": meta.get("model", ""),
+                    "ppi_sources": meta.get("ppi_sources", []),
+                    "string_score": meta.get("string_score"),
+                    "min_score": meta.get("min_score"),
+                    "hub_threshold": meta.get("hub_threshold"),
+                    "max_nodes": meta.get("max_nodes"),
                 })
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
     return jsonify({"entries": entries[:300]})
@@ -800,9 +829,11 @@ def index():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port  = int(os.environ.get("PORT", 5000))
+    host  = os.environ.get("HOST", "127.0.0.1")
+    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
     print("=" * 55)
     print(f"  Drug Hypothesis Generation Web App")
-    print(f"  http://localhost:{port}")
+    print(f"  http://{host}:{port}")
     print("=" * 55)
-    app.run(debug=True, threaded=True, port=port)
+    app.run(debug=debug, threaded=True, host=host, port=port)

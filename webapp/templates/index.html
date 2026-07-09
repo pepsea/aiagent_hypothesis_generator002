@@ -1365,11 +1365,21 @@ function renderHistoryList() {
     const links = [];
     if (e.snapshot_url) links.push(`<a href="${esc(e.snapshot_url)}" target="_blank" class="btn btn-secondary btn-sm">🖥 Web表示</a>`);
     if (e.md_url) links.push(`<a href="${esc(e.md_url)}" target="_blank" class="btn btn-secondary btn-sm">📄 Markdown</a>`);
+    const meta = [];
+    if (e.model) meta.push(`モデル: ${esc(e.model)}`);
+    if (e.ppi_sources && e.ppi_sources.length) meta.push(`PPI: ${esc(e.ppi_sources.join("/").toUpperCase())}`);
+    if (e.string_score != null) meta.push(`STRING閾値: ${esc(e.string_score)}`);
+    if (e.min_score != null) meta.push(`最小スコア: ${esc(e.min_score)}`);
+    if (e.hub_threshold != null) meta.push(`ハブ除外: ${esc(e.hub_threshold)}`);
+    if (e.max_nodes != null) meta.push(`最大パートナー: ${esc(e.max_nodes)}`);
+    const metaHtml = meta.length
+      ? `<div style="font-size:11px;color:var(--text-sub);margin-top:2px;">${meta.join(" ・ ")}</div>` : "";
     return `<div style="display:flex;align-items:center;justify-content:space-between;
                 padding:10px 12px;border:1px solid var(--border);border-radius:7px;margin-bottom:6px;">
       <div>
         <div style="font-weight:600;font-size:13px;">${esc(label)}</div>
         <div style="font-size:11px;color:var(--text-sub);">${esc(ts)}${e.lang?` ・ ${esc(e.lang)}`:""}</div>
+        ${metaHtml}
       </div>
       <div style="display:flex;gap:6px;">${links.join("")}</div>
     </div>`;

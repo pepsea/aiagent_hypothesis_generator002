@@ -79,6 +79,35 @@ python webapp/app.py
 
 ---
 
+## Docker で常時起動する
+
+Web アプリと Ollama をコンテナで常時起動できます（`docker-compose.yml` 同梱）。
+
+```bash
+# 1. API キー等を設定（BioGRID/ToxCast を使わないなら空のままでOK）
+cp .env.example .env
+
+# 2. ビルド & 起動（バックグラウンド）
+docker compose up -d --build
+
+# 3. モデルを取得（初回のみ）
+docker compose exec ollama ollama pull gemma3:4b-it-qat
+
+# → http://localhost:5000 をブラウザで開く
+```
+
+- `reports/` と `ppi_cache/` はホスト側にボリュームマウントされるため、コンテナを
+  再作成してもレポート・キャッシュは失われません。
+- Ollama のモデルは名前付きボリューム `ollama_models` に保存されます。
+- NVIDIA GPU で Ollama を高速化する場合は `docker-compose.yml` 内の
+  `deploy.resources` のコメントを外してください（要 [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)）。
+- 再起動時も自動起動させたい場合、両サービスに `restart: unless-stopped` を
+  設定済みなので、Docker デーモンの自動起動設定（`systemctl enable docker` 等）と
+  組み合わせれば OS 起動時にも自動で立ち上がります。
+- 停止: `docker compose down`（ボリュームは残る）／完全削除: `docker compose down -v`
+
+---
+
 ## データソース
 
 PubMed / OpenTargets / UniProt / SIGNOR / STRING / BioGRID（任意） / GWAS Catalog /

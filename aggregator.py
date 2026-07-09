@@ -513,7 +513,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     # ── ClinicalTrials ────────────────────────────────────────────────────
     ct_data = ev.get("clinicaltrials") or []
     if ct_data:
-        url   = f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&intr={gene}"
+        url   = f"https://clinicaltrials.gov/search?cond={disease.replace(' ','%20')}&term={gene}"
         short = f"ClinicalTrials {gene}×{disease}. {url}"
         full  = f"ClinicalTrials.gov. U.S. NLM. {short}"
         ref   = add_ref("disease", "ClinicalTrials", short, full, url)
