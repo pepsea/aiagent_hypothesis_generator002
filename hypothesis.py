@@ -80,8 +80,10 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 
 ---
 
-## 6. Existing Drug Landscape
-Summarise known drugs/candidates for {gene} with phases. Repositioning or combination opportunities.
+## 6. Existing Drug Landscape & Competitive Analysis
+- **Known drugs/candidates:** summarise drugs/candidates for {gene} with phases. Repositioning or combination opportunities.
+- **Competitive landscape:** using the "Competitive Landscape" evidence (ClinicalTrials.gov trial count and new-entrant risk rating), state how many trials target this gene/disease pair, list the key sponsors/companies, and quote the new-entrant risk level (HIGH/MODERATE/LOW) given in the evidence.
+- **Differentiation strategy:** given that risk level, what would a new entrant need to do differently (e.g. better selectivity, different modality, combination approach, unaddressed patient subgroup) to succeed despite the competitive pressure? If risk is LOW, state why this may indicate limited validation rather than a clear opportunity.
 
 ---
 
@@ -189,8 +191,10 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ---
 
-## 6. 既存薬景観とリポジショニング
-{gene}標的薬・候補をフェーズ付きで整理。リポジショニング・併用の可能性。
+## 6. 既存薬景観と競合分析
+- **既存薬・候補:** {gene}標的薬・候補をフェーズ付きで整理。リポジショニング・併用の可能性。
+- **競合状況:** エビデンス中の「Competitive Landscape」（ClinicalTrials.govの試験数・新規参入リスク評価）を用い、この遺伝子×疾患ペアを狙う試験が何件あるか、主要なスポンサー（企業名）、新規参入リスク（HIGH/MODERATE/LOW）を具体的に引用すること。
+- **差別化戦略:** そのリスクレベルを踏まえ、新規参入者が成功するために何で差別化すべきか（選択性向上・異なるモダリティ・併用療法・未対応の患者サブグループ等）を述べる。リスクがLOWの場合は、それが明確な機会を意味するのか、単に検証が不十分なだけかにも触れること。
 
 ---
 
