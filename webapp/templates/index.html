@@ -389,7 +389,8 @@ async function checkOllama() {
       }
     } else {
       el.className = "status-pill err";
-      el.innerHTML = `<span class="dot"></span>Ollama 未接続`;
+      el.title = `接続先: ${d.url || "不明"}\nエラー: ${d.error || "不明"}`;
+      el.innerHTML = `<span class="dot"></span>Ollama 未接続（${esc(d.url || "")}）`;
       sel.innerHTML = '<option value="">-- Ollama未接続 --</option>';
     }
   } catch {

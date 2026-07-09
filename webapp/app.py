@@ -96,10 +96,14 @@ def config():
 def ollama_status():
     try:
         r = _requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+        r.raise_for_status()
         models = [m["name"] for m in r.json().get("models", [])]
-        return jsonify({"available": True, "models": models})
-    except Exception:
-        return jsonify({"available": False, "models": []})
+        return jsonify({"available": True, "models": models, "url": OLLAMA_BASE_URL})
+    except Exception as e:
+        # url とエラー内容を返す。OLLAMA_HOST の設定ミス
+        # （例: コンテナ内から localhost を見に行っている等）を
+        # ユーザー自身が画面上で気づけるようにするため。
+        return jsonify({"available": False, "models": [], "url": OLLAMA_BASE_URL, "error": str(e)})
 
 
 # ─── API: disease search ───────────────────────────────────────────────────
