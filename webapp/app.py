@@ -334,11 +334,12 @@ def _collector_data(key: str, result) -> dict | None:
                                    "review": v.get("review_status", "")}
                                   for v in result[:100]]}
         if key == "chembl" and isinstance(result, list):
-            return {"drugs": [{"name": d.get("name", "") or d.get("chembl_id", ""),
+            return {"total": len(result),
+                    "drugs": [{"name": d.get("name", "") or d.get("chembl_id", ""),
                                 "chembl_id": d.get("chembl_id", ""),
                                 "phase": d.get("max_phase", ""),
                                 "mechanism": d.get("mechanism", ""),
-                                "type": d.get("molecule_type", "")} for d in result[:10]]}
+                                "type": d.get("molecule_type", "")} for d in result[:100]]}
         if key == "gnomad" and isinstance(result, dict):
             return {"pli": result.get("pLI", result.get("pli")),
                     "loeuf": result.get("LOEUF", result.get("loeuf")),
@@ -374,6 +375,7 @@ def _collector_data(key: str, result) -> dict | None:
             return {"total": len(result),
                     "trials": [{"title": t.get("title", "")[:80], "phase": t.get("phase", ""),
                                  "status": t.get("status", ""),
+                                 "is_active": t.get("is_active", False),
                                  "nct_id": t.get("nct_id", ""),
                                  "url": t.get("url", ""),
                                  "start_date": t.get("start_date", ""),
@@ -549,7 +551,8 @@ def analyze():
             # 取りこぼすため（例: BACE1 阻害薬の治験の多くは "BACE1" と書かれない）
             drug_names = [d.get("name") or d.get("drug") or "" for d in known_drugs]
             try:
-                trials = clinicaltrials.get_trials(gene, disease_name, drug_names=drug_names)
+                trials = clinicaltrials.get_trials(gene, disease_name, drug_names=drug_names,
+                                                    disease_efo_id=disease_id)
                 results["clinicaltrials"] = trials
                 send("collector_done", gene=gene, source="clinicaltrials", ok=True,
                      summary=_collector_summary("clinicaltrials", trials, None),

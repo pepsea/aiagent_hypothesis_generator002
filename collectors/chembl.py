@@ -71,8 +71,8 @@ def _find_target_chembl_id(gene_symbol: str) -> str | None:
     return None
 
 
-def get_drugs_for_target(gene_symbol: str) -> list[dict]:
-    """Return approved/clinical-stage drugs that target the given gene."""
+def get_drugs_for_target(gene_symbol: str, max_results: int = 100) -> list[dict]:
+    """Return approved/clinical-stage drugs that target the given gene (最大 max_results 件)。"""
     chembl_id = _find_target_chembl_id(gene_symbol)
     if not chembl_id:
         return []
@@ -81,56 +81,73 @@ def get_drugs_for_target(gene_symbol: str) -> list[dict]:
     r2 = requests.get(f"{BASE}/mechanism", params={
         "target_chembl_id": chembl_id,
         "format": "json",
-        "limit": 20,
+        "limit": max_results,
     }, timeout=20)
     r2.raise_for_status()
 
     mechanisms = r2.json().get("mechanisms", [])
-    drugs = []
-    seen = set()
+    mech_by_mol = {}
     for mech in mechanisms:
         mol_id = mech.get("molecule_chembl_id")
-        if mol_id in seen:
-            continue
-        seen.add(mol_id)
+        if mol_id and mol_id not in mech_by_mol:
+            mech_by_mol[mol_id] = mech
 
-        # Get drug details
-        try:
-            r3 = requests.get(f"{BASE}/molecule/{mol_id}", params={"format": "json"}, timeout=10)
-            r3.raise_for_status()
-            mol = r3.json()
-            drugs.append({
-                "chembl_id": mol_id,
-                "name": mol.get("pref_name", mol_id),
-                "max_phase": mol.get("max_phase"),
-                "molecule_type": mol.get("molecule_type", ""),
-                "mechanism": mech.get("mechanism_of_action", ""),
-                "action_type": mech.get("action_type", ""),
-                "indication": mech.get("disease_efficacy", False),
-            })
-        except Exception:
-            drugs.append({
-                "chembl_id": mol_id,
-                "name": mol_id,
-                "mechanism": mech.get("mechanism_of_action", ""),
-                "action_type": mech.get("action_type", ""),
-            })
+    drugs = []
+    if mech_by_mol:
+        # molecule 詳細を1件ずつ取得すると件数が増えるほどN+1で遅くなるため、
+        # molecule_chembl_id__in でバッチ取得する（ChEMBL API がサポート）
+        mol_ids = list(mech_by_mol.keys())
+        mol_by_id = {}
+        CHUNK = 50
+        for i in range(0, len(mol_ids), CHUNK):
+            chunk = mol_ids[i:i + CHUNK]
+            try:
+                r3 = requests.get(f"{BASE}/molecule", params={
+                    "molecule_chembl_id__in": ",".join(chunk),
+                    "format": "json",
+                    "limit": len(chunk),
+                }, timeout=20)
+                r3.raise_for_status()
+                for mol in r3.json().get("molecules", []):
+                    mol_by_id[mol.get("molecule_chembl_id")] = mol
+            except Exception:
+                pass
+
+        for mol_id, mech in mech_by_mol.items():
+            mol = mol_by_id.get(mol_id)
+            if mol:
+                drugs.append({
+                    "chembl_id": mol_id,
+                    "name": mol.get("pref_name", mol_id),
+                    "max_phase": mol.get("max_phase"),
+                    "molecule_type": mol.get("molecule_type", ""),
+                    "mechanism": mech.get("mechanism_of_action", ""),
+                    "action_type": mech.get("action_type", ""),
+                    "indication": mech.get("disease_efficacy", False),
+                })
+            else:
+                drugs.append({
+                    "chembl_id": mol_id,
+                    "name": mol_id,
+                    "mechanism": mech.get("mechanism_of_action", ""),
+                    "action_type": mech.get("action_type", ""),
+                })
 
     # 承認薬 mechanism が無い場合、活性を持つ臨床フェーズ化合物にフォールバック
     if not drugs:
-        drugs = _clinical_candidates(chembl_id)
+        drugs = _clinical_candidates(chembl_id, max_n=max_results)
 
-    return drugs
+    return drugs[:max_results]
 
 
-def _clinical_candidates(target_chembl_id: str, max_n: int = 10) -> list[dict]:
+def _clinical_candidates(target_chembl_id: str, max_n: int = 100) -> list[dict]:
     """mechanism テーブルに承認薬が無いターゲット向け:
     活性データを持つ臨床フェーズ (max_phase>=1) の名前付き分子を返す。"""
     try:
         r = requests.get(f"{BASE}/activity", params={
             "target_chembl_id": target_chembl_id,
             "pchembl_value__isnull": "false",
-            "format": "json", "limit": 100,
+            "format": "json", "limit": max(max_n, 100),
         }, timeout=30)
         r.raise_for_status()
         acts = r.json().get("activities", [])
@@ -138,36 +155,47 @@ def _clinical_candidates(target_chembl_id: str, max_n: int = 10) -> list[dict]:
         return []
 
     mol_ids = list({a.get("molecule_chembl_id") for a in acts if a.get("molecule_chembl_id")})
+
+    # molecule 詳細をバッチ取得（1件ずつだと max_n=100 で N+1 が重くなるため）
+    mol_by_id = {}
+    CHUNK = 50
+    for i in range(0, len(mol_ids), CHUNK):
+        chunk = mol_ids[i:i + CHUNK]
+        try:
+            r3 = requests.get(f"{BASE}/molecule", params={
+                "molecule_chembl_id__in": ",".join(chunk),
+                "format": "json",
+                "limit": len(chunk),
+            }, timeout=20)
+            r3.raise_for_status()
+            for mol in r3.json().get("molecules", []):
+                mol_by_id[mol.get("molecule_chembl_id")] = mol
+        except Exception:
+            pass
+
     drugs, seen = [], set()
     for mol_id in mol_ids:
-        if len(drugs) >= max_n:
-            break
-        try:
-            r3 = requests.get(f"{BASE}/molecule/{mol_id}", params={"format": "json"}, timeout=10)
-            r3.raise_for_status()
-            mol = r3.json()
-            phase = mol.get("max_phase")
-            name = mol.get("pref_name")
-            # 臨床フェーズかつ名前付きのもののみ
-            if not name or phase in (None, 0, "0"):
-                continue
-            if name in seen:
-                continue
-            seen.add(name)
-            drugs.append({
-                "chembl_id": mol_id,
-                "name": name,
-                "max_phase": phase,
-                "molecule_type": mol.get("molecule_type", ""),
-                "mechanism": "(bioactivity; not an approved indication)",
-                "action_type": "",
-                "indication": False,
-            })
-        except Exception:
+        mol = mol_by_id.get(mol_id)
+        if not mol:
             continue
+        phase = mol.get("max_phase")
+        name = mol.get("pref_name")
+        # 臨床フェーズかつ名前付きのもののみ
+        if not name or phase in (None, 0, "0") or name in seen:
+            continue
+        seen.add(name)
+        drugs.append({
+            "chembl_id": mol_id,
+            "name": name,
+            "max_phase": phase,
+            "molecule_type": mol.get("molecule_type", ""),
+            "mechanism": "(bioactivity; not an approved indication)",
+            "action_type": "",
+            "indication": False,
+        })
 
     drugs.sort(key=lambda d: d.get("max_phase") or 0, reverse=True)
-    return drugs
+    return drugs[:max_n]
 
 
 def get_toxicity_flags(gene_symbol: str) -> dict:

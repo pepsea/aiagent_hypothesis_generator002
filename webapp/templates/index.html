@@ -1105,6 +1105,8 @@ function renderDataDetail(source, data) {
     }
     if (source === "chembl" && data.drugs) {
       if (!data.drugs.length) return '<span style="color:var(--text-sub);font-size:13px;">承認薬・臨床候補なし（ChEMBL）</span>';
+      const note = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
+        最大100件を表示（該当 ${data.total ?? data.drugs.length}件）。</p>`;
       const rows = data.drugs.map(d => {
         const nameHtml = d.chembl_id
           ? `<a href="https://www.ebi.ac.uk/chembl/explore/compound/${esc(d.chembl_id)}" target="_blank">${esc(d.name)}</a>`
@@ -1114,7 +1116,7 @@ function renderDataDetail(source, data) {
         <td><span class="badge">Phase ${d.phase!=null?d.phase:"?"}</span></td>
         <td>${esc(d.mechanism)}</td><td>${esc(d.type||"")}</td></tr>`;
       }).join("");
-      return `<table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th><th>種別</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return note + `<table class="data-table"><thead><tr><th>薬剤名</th><th>Phase</th><th>作用機序</th><th>種別</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     if (source === "gnomad") {
       const fmt = v => (typeof v === "number") ? v.toPrecision(3) : (v ?? "N/A");
@@ -1171,17 +1173,21 @@ function renderDataDetail(source, data) {
         <table class="data-table"><thead><tr><th>がん種</th><th>器官</th><th>高/中/低/なし</th><th>高中率</th></tr></thead><tbody>${cancerRows}</tbody></table>`:""}`;
     }
     if (source === "clinicaltrials" && data.trials) {
+      const nActive = data.trials.filter(t=>t.is_active).length;
       const note = `<p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">
-        直近の試験を優先し、最大100件を表示（該当 ${data.total ?? data.trials.length}件）。</p>`;
+        現在進行中の試験（募集中/実施中）を優先し、最大100件を表示（進行中 ${nActive}件 / 該当 ${data.total ?? data.trials.length}件）。</p>`;
       const rows = data.trials.map(t=>{
         const titleHtml = t.url
           ? `<a href="${esc(t.url)}" target="_blank">${esc(t.title)}</a>`
           : (t.nct_id ? `<a href="https://clinicaltrials.gov/study/${esc(t.nct_id)}" target="_blank">${esc(t.title)}</a>` : esc(t.title));
         const collabs = (t.collaborators||[]).length
           ? `<div style="font-size:10px;color:var(--text-sub);">+ ${esc(t.collaborators.join(", "))}</div>` : "";
+        const statusHtml = t.is_active
+          ? `<span class="badge" style="background:#dcfce7;color:#166534;">${esc(t.status)}</span>`
+          : esc(t.status);
         return `<tr><td>${titleHtml}</td>
         <td><span class="badge">${esc(t.phase||"N/A")}</span></td>
-        <td>${esc(t.status)}</td>
+        <td>${statusHtml}</td>
         <td style="font-size:11px;color:var(--text-sub);">${esc(t.start_date||"N/A")}</td>
         <td style="font-size:12px;">${esc(t.sponsor||"—")}${collabs}</td></tr>`;
       }).join("");

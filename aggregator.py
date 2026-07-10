@@ -198,7 +198,8 @@ def collect_all(
     #  遺伝子名単独の検索では大半の治験を取りこぼす）
     drug_names = [d.get("name") or d.get("drug") or "" for d in known_drugs]
     ct_result, ct_err = _run_with_retry(
-        lambda: clinicaltrials.get_trials(gene, disease, drug_names=drug_names),
+        lambda: clinicaltrials.get_trials(gene, disease, drug_names=drug_names,
+                                           disease_efo_id=disease_id),
         "clinicaltrials", max_retries, log,
     )
     results["clinicaltrials"] = ct_result

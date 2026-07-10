@@ -105,12 +105,14 @@ def enrichment_md(enrichment: dict, top_per_source: int = 5) -> str:
     return "\n".join(lines)
 
 
-def competitive_landscape_md(trials: list[dict] | None, top_n: int = 30) -> str:
+def competitive_landscape_md(trials: list[dict] | None, top_n: int = 100) -> str:
     """ClinicalTrials.gov の試験一覧を「競合状況（新規参入リスク）」として整形する。
 
     試験数が多いほど同一標的・疾患を狙う競合が多い＝新規参入のリスクが高い
     ことを示す簡易的な目安を付与する。件数の上限は設けず全件を対象に集計し、
-    表には直近の試験を優先して表示する（全件は表内に収まらない場合がある）。
+    表には現在進行中の試験（Recruiting/Active/Not yet recruiting/Enrolling
+    by invitation）を優先し、その中では直近開始のものから表示する
+    （collectors/clinicaltrials.py 側で既にこの順にソート済み）。
     """
     trials = trials or []
     if not trials:
@@ -124,17 +126,15 @@ def competitive_landscape_md(trials: list[dict] | None, top_n: int = 30) -> str:
     else:
         risk = "低〜不明（競合試験は少ないが、対象が新規性の高い領域である可能性）"
 
-    active_statuses = {"Recruiting", "Active (not recruiting)", "Not yet recruiting",
-                       "Enrolling by invitation"}
-    n_active = sum(1 for t in trials if t.get("status") in active_statuses)
+    n_active = sum(1 for t in trials if t.get("is_active"))
 
     lines = [
         "## Competitive Landscape (ClinicalTrials.gov)",
         "",
-        f"- 総試験数: {n} 件（進行中/募集中: {n_active} 件）",
+        f"- 総試験数: {n} 件（現在進行中: {n_active} 件）",
         f"- 新規参入リスク: {risk}",
         "",
-        f"### 試験一覧（直近 {min(top_n, n)} 件 / 全{n}件中）",
+        f"### 試験一覧（現在進行中を優先・最大{min(top_n, n)}件 / 全{n}件中）",
         "",
         "| NCT ID | 開始日 | Phase | 状況 | スポンサー |",
         "|---|---|---|---|---|",
