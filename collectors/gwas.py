@@ -114,17 +114,16 @@ def get_clinvar_variants(
     import time
     base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-    # 疾患名を esearch クエリに含めて API 側で絞り込む
-    disease_term = f' AND "{disease_query}"[Disease/Phenotype]' if disease_query else ""
+    # esearch は遺伝子名 + 臨床的意義のみで検索（疾患フィルタはポストフィルタで実施）
+    # ClinVar の esearch では [dis] タグの一致精度が低く取りこぼしが多いため
     query = (
         f"{gene_symbol}[Gene Name]"
         f" AND (Pathogenic[Clinical significance] OR Likely pathogenic[Clinical significance])"
-        f"{disease_term}"
     )
 
-    # フィルタで減る分の余裕を持たせて多めに取得
+    # ポストフィルタで減る分の余裕を持たせて多めに取得
     r = requests.get(f"{base}/esearch.fcgi", params={
-        "db": "clinvar", "term": query, "retmax": max_results * 3, "retmode": "json"
+        "db": "clinvar", "term": query, "retmax": max_results * 5, "retmode": "json"
     }, timeout=15)
     r.raise_for_status()
     ids = r.json().get("esearchresult", {}).get("idlist", [])
@@ -159,16 +158,19 @@ def get_clinvar_variants(
         if vid not in result:
             continue
         item = result[vid]
-        # NCBI eutils は germline_classification（旧 clinical_significance）に
-        # 臨床的意義・レビュー状態・trait を格納する
+        # NCBI eutils は germline_classification（旧 clinical_significance）に臨床的意義を格納
+        # trait_set は germline_classification 内またはトップレベルの両方を確認
         cls = item.get("germline_classification") or item.get("clinical_significance") or {}
-        traits = cls.get("trait_set") or []
-        condition = traits[0].get("trait_name", "") if traits else ""
-        if condition.strip().lower() in _CLINVAR_NO_CONDITION:
+        traits = cls.get("trait_set") or item.get("trait_set") or []
+        # 複数の trait をすべて結合して対象テキストを作る
+        condition_parts = [t.get("trait_name", "") for t in traits if t.get("trait_name")]
+        condition = condition_parts[0] if condition_parts else ""
+        all_conditions = " ".join(condition_parts)
+        if condition.strip().lower() in _CLINVAR_NO_CONDITION and not condition_parts[1:]:
             continue  # 疾患名が分類されていないレコードは対象外
-        # 疾患フィルタ: condition または title に疾患名・synonym が含まれるか確認
+        # 疾患フィルタ: condition群 または title に疾患名・synonym が含まれるか確認
         if filter_terms:
-            target_text = (condition + " " + item.get("title", "")).lower()
+            target_text = (all_conditions + " " + item.get("title", "")).lower()
             if not any(term in target_text for term in filter_terms):
                 continue
         variants.append({
