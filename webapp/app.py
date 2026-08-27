@@ -723,10 +723,16 @@ def analyze():
                     partner_functions=all_functions, hub_threshold=hub_threshold)
 
             # ── 4. Hypothesis streaming ───────────────────────────────────────
-            # コンテキスト長からnum_ctxを動的に決定（余裕+生成分3500を加算）
+            # コンテキスト長からnum_ctxを動的に決定。
+            # 入力 = エビデンス + プロンプトテンプレート（約1500トークン）
+            # 出力 = max_tokens（4000）
+            # num_ctx < 入力+出力 だとOllamaが無音でプロンプトを打ち切るため
+            # 十分な余裕を持たせる。
             ctx_chars = len(context)
             ctx_tokens_est = ctx_chars // 3  # 英語文字÷3でトークン数を粗推定
-            num_ctx = max(8192, min(32768, ctx_tokens_est + 4096))
+            template_tokens = 1500            # プロンプトテンプレート分
+            generation_tokens = 4000          # max_tokens と合わせる
+            num_ctx = max(16384, min(32768, ctx_tokens_est + template_tokens + generation_tokens))
             send("progress", gene=gene, step="llm",
                  message=f"仮説生成中... (コンテキスト約{ctx_tokens_est:,}トークン)")
             hypothesis_parts = []

@@ -245,7 +245,7 @@ def generate_hypothesis(
     temperature: float = 0.3,
     lang: str = "en",
     stream_callback=None,
-    num_ctx: int = 16384,
+    num_ctx: int = 24576,
 ) -> str:
     template = HYPOTHESIS_PROMPT_JA if lang == "ja" else HYPOTHESIS_PROMPT_TEMPLATE
     prompt = template.format(gene=gene, disease=disease, context=context)
