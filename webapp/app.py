@@ -497,7 +497,6 @@ def analyze():
                 COLLECTORS["biogrid"] = _biogrid_missing_key
             COLLECTORS.update({
                 "gwas":           lambda: gwas.get_gwas_associations(gene, disease_name),
-                "clinvar":        lambda: gwas.get_clinvar_variants(gene),
                 "chembl":         lambda: chembl.get_drugs_for_target(gene),
                 "gnomad":         lambda: gnomad.get_constraint(gene),
                 "gtex":           lambda: gtex.get_tissue_expression(gene),
@@ -544,6 +543,19 @@ def analyze():
             except Exception as e:
                 errors["toxicity"] = str(e)
                 send("collector_done", gene=gene, source="toxicity", ok=False,
+                     summary=f"エラー: {e}", data=None)
+
+            # clinvar: opentargets の synonyms を使い疾患関連バリアントに絞り込む
+            ot_synonyms = ot.get("disease_synonyms", []) if isinstance(ot, dict) else []
+            try:
+                cv = gwas.get_clinvar_variants(gene, disease_query=disease_name, disease_synonyms=ot_synonyms)
+                results["clinvar"] = cv
+                send("collector_done", gene=gene, source="clinvar", ok=True,
+                     summary=_collector_summary("clinvar", cv, None),
+                     data=_collector_data("clinvar", cv))
+            except Exception as e:
+                errors["clinvar"] = str(e)
+                send("collector_done", gene=gene, source="clinvar", ok=False,
                      summary=f"エラー: {e}", data=None)
 
             # clinicaltrials 再検索（chembl/opentargets の既知薬剤名で intervention 検索を追加）
