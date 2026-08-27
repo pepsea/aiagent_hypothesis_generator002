@@ -96,9 +96,18 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 ---
 
 ## 8. Recommended Experiments
-| Experiment | Endpoint | Expected Result |
-|---|---|---|
-| (3–5 specific experiments based on the evidence above) | | |
+Design 3–5 experiments directly justified by the evidence above. For each, be specific:
+- Use the actual genetic variants, drugs, cell lines, or animal models mentioned in the context.
+- Endpoint must be measurable (e.g., IC50, % viability, bone length Z-score, histology score).
+- Expected result must be falsifiable (a specific direction and magnitude if possible).
+
+| # | Experiment Type | Specific Design | Primary Endpoint | Expected Result | Evidence Basis |
+|---|---|---|---|---|---|
+| 1 | (in vitro / in vivo / ex vivo / clinical) | (cell line/model, compound/perturbation, dose/duration) | (measurable readout) | (specific prediction) | (cite tag) |
+| 2 | | | | | |
+| 3 | | | | | |
+
+Prioritise: (1) genetic validation, (2) pharmacological proof-of-concept, (3) translational/biomarker study.
 
 ---
 
