@@ -5,12 +5,9 @@
   knownDrugs → drugAndClinicalCandidates
   maximumClinicalTrialPhase → maximumClinicalStage
 
-enableIndirect: false で固定している。true にすると、オントロジー階層を
-辿った間接エビデンスまで合算されるため、直接的な根拠が薄い疾患のスコアが
-不自然に底上げされる（例: BACE1 で true にすると Alzheimer disease の
-score が 0.42 (direct) → 0.91 (indirect込み) に跳ね上がり、Parkinson disease
-(0.92) 等の無関係な疾患に順位で負けてしまう）。false にすると疾患方向
-(disease→targets) と標的方向 (target→diseases) のスコアも一致する。
+enableIndirect: true でウェブサイト表示と一致させている。
+オントロジー階層を辿った間接エビデンスを含むため、
+platform.opentargets.org の表示スコアと同じ値が得られる。
 """
 import requests
 
@@ -23,7 +20,7 @@ query($ensgId: String!) {
     approvedName
     biotype
     functionDescriptions
-    associatedDiseases(enableIndirect: false, page: {index: 0, size: 20}) {
+    associatedDiseases(enableIndirect: true, page: {index: 0, size: 20}) {
       rows {
         disease { id name }
         score
@@ -47,7 +44,7 @@ query($efoId: String!) {
     id
     name
     synonyms { terms scope }
-    associatedTargets(enableIndirect: false, page: {index: 0, size: 500}) {
+    associatedTargets(enableIndirect: true, page: {index: 0, size: 500}) {
       rows {
         target { id approvedSymbol }
         score
@@ -64,7 +61,7 @@ query($ensgId: String!, $efoId: String!) {
   target(ensemblId: $ensgId) {
     approvedSymbol
     associatedDiseases(
-      enableIndirect: false
+      enableIndirect: true
       filter: { ids: [$efoId] }
       page: { index: 0, size: 1 }
     ) {
