@@ -98,16 +98,14 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 
 ## 8. Recommended Experiments
 
-Design exactly 5 experiments in priority order. Write each as a concise but fully specified experimental description. Prioritise specificity of the experimental content — name the exact models, reagents, assays, and readouts. Do NOT use a table.
+Propose 3–5 experiments in priority order. For each, state clearly:
+1. **Purpose** — what question this experiment answers (one sentence).
+2. **Experimental system** — the most appropriate model or sample type (e.g., disease-relevant cell line, patient-derived primary cells, ex vivo tissue, organoid). Prefer in vitro and ex vivo over animal models. Name a specific system if mentioned in the evidence.
+3. **Key readout** — the main measurable endpoint.
 
-**Experiment [N]: [Title]**
-- **Model:** Name the exact cell line, animal model, or patient material. Use models mentioned in the evidence (e.g., "ATDC5 chondrocytes", "Fgfr3^Y367C/+ knock-in mice", "iPSC-derived chondrocytes from FGFR3-p.N540K carriers"). If none is specified in the evidence, name the most appropriate established model.
-- **Intervention:** State exactly what is done — genetic perturbation (e.g., "CRISPR-Cas9 knock-in of the rs[ID] variant", "siRNA knockdown of {gene} with siRNA-001"), pharmacological treatment (e.g., "compound X at 1, 3, 10 µM for 48 h"), or other manipulation. Name specific reagents where available from the context.
-- **Readout:** State the assay and measured parameter with units (e.g., "qRT-PCR for COL2A1/COL10A1 mRNA ratio", "µCT femur length Z-score at 8 weeks", "phospho-STAT3 Tyr705 / total STAT3 by ELISA"). Specify primary and one key secondary readout.
-- **Expected outcome:** What specific change is predicted (direction + magnitude if possible), and what result would indicate the hypothesis is wrong.
+Keep each experiment to 3–4 sentences. Do not write full protocols.
 
-Prioritise: (1) in vitro genetic variant / target validation in disease-relevant cell lines, (2) in vitro pharmacological proof-of-concept, (3) ex vivo using patient-derived or clinical samples (primary cells, tissue biopsies, organoids, patient iPSCs), (4) pathway mechanism confirmation, (5) biomarker / translational.
-Favour in vitro and ex vivo (clinical sample) designs over animal models. When proposing ex vivo experiments, specify the clinical sample type (e.g., growth-plate biopsy, patient-derived fibroblasts, synovial fluid, blood-derived cells) and how it would be obtained.
+Prioritise: (1) target/variant validation, (2) pharmacological proof-of-concept, (3) mechanism confirmation, (4) translational/biomarker.
 
 ---
 
@@ -218,16 +216,14 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ## 8. 推奨次期実験
 
-優先順位の高い順に5件の実験を設計すること。各実験は簡潔かつ具体的な実験内容の記述として書く。**実験内容の具体性を最優先**とし、モデル・試薬・アッセイ・読み取り値を具体名で記載すること。表形式は使わない。
+優先順位の高い順に3〜5件の実験を提案すること。各実験について以下を簡潔に記述する：
+1. **目的** — この実験が何を明らかにするか（1文）。
+2. **試験系** — 最適なモデルまたはサンプル種別（例:疾患関連細胞株、患者由来初代細胞、ex vivo組織、オルガノイド）。動物モデルよりin vitro・ex vivoを優先する。エビデンスに具体的な系が記載されていればそれを使う。
+3. **主要エンドポイント** — 主な測定項目。
 
-**実験[N]：[タイトル]**
-- **モデル：** 具体的な細胞株・動物モデル・患者材料を明記する。エビデンス中に記載があればそれを使う（例:「ATDC5軟骨細胞」「Fgfr3^Y367C/+ノックインマウス」「FGFR3-p.N540K保因者由来iPSC軟骨細胞」）。記載がなければ最も適切な既存モデルを名指しで提案する。
-- **介入：** 何を行うかを具体的に記述する。遺伝的操作（例:「rs[ID]変異のCRISPR-Cas9ノックイン」「siRNA-001による{gene}ノックダウン」）、薬理学的処置（例:「化合物X 1・3・10 µMを48時間投与」）など。コンテキストに試薬名がある場合は使用する。
-- **読み取り値：** アッセイと測定パラメータを単位付きで記述する（例:「COL2A1/COL10A1 mRNA比のqRT-PCR」「8週時点のµCTによる大腿骨長Zスコア」「ELISAによるphospho-STAT3 Tyr705/total STAT3比」）。主要・副次エンドポイントを各1つ記述する。
-- **期待される結果：** 予測される変化の方向と大きさ（可能であれば定量的に）、および仮説が否定されるとはどのような結果かを明記する。
+各実験は3〜4文程度。詳細なプロトコルは不要。
 
-優先順位：(1) 疾患関連細胞株を使ったin vitro遺伝的変異/標的検証、(2) in vitro薬理学的概念実証、(3) 患者由来サンプルを使ったex vivo（初代細胞・組織生検・オルガノイド・患者iPSC）、(4) パスウェイメカニズム確認、(5) バイオマーカー/トランスレーショナル。
-動物モデルよりin vitroおよびex vivo（臨床サンプル使用）を優先する。ex vivo実験を提案する場合は、臨床サンプルの種類（例:成長板生検、患者由来線維芽細胞、滑液、血液由来細胞）と入手方法を具体的に記述すること。
+優先順位：(1) 標的/変異の検証、(2) 薬理学的概念実証、(3) メカニズム確認、(4) トランスレーショナル/バイオマーカー。
 
 ---
 
