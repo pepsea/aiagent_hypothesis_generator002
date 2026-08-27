@@ -98,24 +98,16 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 
 ## 8. Recommended Experiments
 
-Design exactly 5 experiments. Each must be written as a fully self-contained protocol paragraph — do NOT use a table. Follow this format for every experiment:
+Design exactly 5 experiments in priority order. Write each as a concise but fully specified experimental description. Prioritise specificity of the experimental content — name the exact models, reagents, assays, and readouts. Do NOT use a table.
 
-**Experiment [N]: [Descriptive Title]**
-- **Rationale:** Why this experiment is critical given the evidence above (cite tag).
-- **Model / System:** Exact cell line, organism, or patient cohort (e.g., "ATDC5 chondrocytes", "Fgfr3Y367C/+ knock-in mice", "primary growth-plate chondrocytes from FGFR3-p.N540K patients"). If a specific model is mentioned in the context, use it; otherwise propose the most appropriate established model and justify.
-- **Perturbation:** Exact genetic or pharmacological intervention (e.g., "lentiviral shRNA knockdown of {gene}", "10 µM compound X for 72 h", "CRISPR-Cas9 introduction of variant rs[ID]"). Include dose, duration, and controls.
-- **Primary Endpoint:** Single measurable readout with unit and assay method (e.g., "bone length Z-score by µCT at 8 weeks", "IC50 by CellTiter-Glo viability assay", "phospho-ERK1/2 / total-ERK ratio by western blot").
-- **Secondary Endpoints:** 1–2 additional readouts that mechanistically confirm the primary result.
-- **Expected Result:** Specific directional prediction with magnitude where possible (e.g., "≥40% reduction in chondrocyte proliferation vs. control", "rescue of bone length to within 1 SD of wild-type").
-- **Failure criterion / falsifiability:** What result would refute the hypothesis?
-- **Timeline:** Estimated duration to first result.
+**Experiment [N]: [Title]**
+- **Model:** Name the exact cell line, animal model, or patient material. Use models mentioned in the evidence (e.g., "ATDC5 chondrocytes", "Fgfr3^Y367C/+ knock-in mice", "iPSC-derived chondrocytes from FGFR3-p.N540K carriers"). If none is specified in the evidence, name the most appropriate established model.
+- **Intervention:** State exactly what is done — genetic perturbation (e.g., "CRISPR-Cas9 knock-in of the rs[ID] variant", "siRNA knockdown of {gene} with siRNA-001"), pharmacological treatment (e.g., "compound X at 1, 3, 10 µM for 48 h"), or other manipulation. Name specific reagents where available from the context.
+- **Readout:** State the assay and measured parameter with units (e.g., "qRT-PCR for COL2A1/COL10A1 mRNA ratio", "µCT femur length Z-score at 8 weeks", "phospho-STAT3 Tyr705 / total STAT3 by ELISA"). Specify primary and one key secondary readout.
+- **Expected outcome:** What specific change is predicted (direction + magnitude if possible), and what result would indicate the hypothesis is wrong.
 
-Prioritise in this order:
-1. Genetic validation of the variant/target (CRISPR / patient-derived cells / knock-in model)
-2. Pharmacological proof-of-concept (small molecule, antibody, or ASO in disease-relevant model)
-3. Mechanism confirmation (pathway-level readout linking {gene} perturbation to downstream effectors)
-4. Biomarker / translational study (patient tissue, plasma, or imaging)
-5. Safety / selectivity assessment
+Prioritise: (1) in vitro genetic variant / target validation in disease-relevant cell lines, (2) in vitro pharmacological proof-of-concept, (3) ex vivo using patient-derived or clinical samples (primary cells, tissue biopsies, organoids, patient iPSCs), (4) pathway mechanism confirmation, (5) biomarker / translational.
+Favour in vitro and ex vivo (clinical sample) designs over animal models. When proposing ex vivo experiments, specify the clinical sample type (e.g., growth-plate biopsy, patient-derived fibroblasts, synovial fluid, blood-derived cells) and how it would be obtained.
 
 ---
 
@@ -226,24 +218,16 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ## 8. 推奨次期実験
 
-5件の実験を設計すること。各実験は完全な自己完結型のプロトコル段落として記述する（表形式は使わない）。各実験は以下の形式で書くこと：
+優先順位の高い順に5件の実験を設計すること。各実験は簡潔かつ具体的な実験内容の記述として書く。**実験内容の具体性を最優先**とし、モデル・試薬・アッセイ・読み取り値を具体名で記載すること。表形式は使わない。
 
-**実験[N]：[実験の説明的タイトル]**
-- **実施理由：** 上記のエビデンスを踏まえ、なぜこの実験が重要か（引用タグを付ける）。
-- **モデル/系：** 具体的な細胞株・動物・患者コホート（例:「ATDC5軟骨細胞」「Fgfr3Y367C/+ノックインマウス」「FGFR3-p.N540K患者由来初代成長板軟骨細胞」）。コンテキストに特定モデルが記載されていればそれを使い、なければ最適な既存モデルを根拠とともに提案する。
-- **介入：** 遺伝的または薬理学的介入の具体的内容（例:「{gene}のレンチウイルスshRNAノックダウン」「化合物X 10 µMを72時間投与」「CRISPR-Cas9によるrs[ID]変異の導入」）。投与量・期間・対照群を明記。
-- **主要エンドポイント：** 単一の測定可能な読み取り値（単位・アッセイ手法を含む）（例:「8週時点のµCTによる骨長Zスコア」「CellTiter-GloによるIC50」「ウエスタンブロットによるphospho-ERK1/2/total-ERK比」）。
-- **副次エンドポイント：** 主要エンドポイントを機序的に裏付ける追加読み取り値を1〜2つ。
-- **期待される結果：** 可能であれば変化の方向と大きさを具体的に予測（例:「対照群と比べて軟骨細胞増殖が≥40%減少」「骨長が野生型の1SD以内に回復」）。
-- **反証基準：** どのような結果が出れば仮説が否定されるか。
-- **タイムライン：** 最初の結果が得られるまでの推定期間。
+**実験[N]：[タイトル]**
+- **モデル：** 具体的な細胞株・動物モデル・患者材料を明記する。エビデンス中に記載があればそれを使う（例:「ATDC5軟骨細胞」「Fgfr3^Y367C/+ノックインマウス」「FGFR3-p.N540K保因者由来iPSC軟骨細胞」）。記載がなければ最も適切な既存モデルを名指しで提案する。
+- **介入：** 何を行うかを具体的に記述する。遺伝的操作（例:「rs[ID]変異のCRISPR-Cas9ノックイン」「siRNA-001による{gene}ノックダウン」）、薬理学的処置（例:「化合物X 1・3・10 µMを48時間投与」）など。コンテキストに試薬名がある場合は使用する。
+- **読み取り値：** アッセイと測定パラメータを単位付きで記述する（例:「COL2A1/COL10A1 mRNA比のqRT-PCR」「8週時点のµCTによる大腿骨長Zスコア」「ELISAによるphospho-STAT3 Tyr705/total STAT3比」）。主要・副次エンドポイントを各1つ記述する。
+- **期待される結果：** 予測される変化の方向と大きさ（可能であれば定量的に）、および仮説が否定されるとはどのような結果かを明記する。
 
-優先順位：
-1. 変異/標的の遺伝的検証（CRISPR/患者由来細胞/ノックインモデル）
-2. 薬理学的概念実証（疾患関連モデルでの低分子・抗体・ASOによる検証）
-3. メカニズム確認（{gene}の摂動から下流エフェクターへのパスウェイレベルの読み取り）
-4. バイオマーカー/トランスレーショナル研究（患者組織・血漿・イメージング）
-5. 安全性/選択性評価
+優先順位：(1) 疾患関連細胞株を使ったin vitro遺伝的変異/標的検証、(2) in vitro薬理学的概念実証、(3) 患者由来サンプルを使ったex vivo（初代細胞・組織生検・オルガノイド・患者iPSC）、(4) パスウェイメカニズム確認、(5) バイオマーカー/トランスレーショナル。
+動物モデルよりin vitroおよびex vivo（臨床サンプル使用）を優先する。ex vivo実験を提案する場合は、臨床サンプルの種類（例:成長板生検、患者由来線維芽細胞、滑液、血液由来細胞）と入手方法を具体的に記述すること。
 
 ---
 
