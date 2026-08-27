@@ -587,21 +587,26 @@ def analyze():
                         gene, disease_genes, max_partners=5)
                     results["pathway_connections"] = pathway_connections
 
-                    # パスウェイ隣接遺伝子の論文を補足取得
-                    partner_papers: dict = {}
-                    for conn in pathway_connections[:3]:
-                        partner = conn.get("partner", "")
-                        if not partner:
-                            continue
+                    # パスウェイ隣接遺伝子の論文を並列取得
+                    partners_to_fetch = [
+                        c.get("partner", "") for c in pathway_connections[:3]
+                        if c.get("partner")
+                    ]
+                    def _fetch_pp(partner):
                         try:
-                            papers = pubmed.search_pubmed(
+                            pps = pubmed.search_pubmed(
                                 partner, disease_name, max_results=5,
                                 disease_efo_id=disease_id)
-                            papers = [p for p in papers if p.get("relevance_score", 0) > 0]
-                            if papers:
-                                partner_papers[partner] = papers
+                            return partner, [p for p in pps if p.get("relevance_score", 0) > 0]
                         except Exception:
-                            pass
+                            return partner, []
+                    partner_papers: dict = {}
+                    if partners_to_fetch:
+                        from concurrent.futures import ThreadPoolExecutor as _TPE
+                        with _TPE(max_workers=len(partners_to_fetch)) as _ex:
+                            for _p, _pp in _ex.map(_fetch_pp, partners_to_fetch):
+                                if _pp:
+                                    partner_papers[_p] = _pp
                     results["related_gene_papers"] = partner_papers
                 except Exception as e:
                     send("progress", gene=gene, step="collect",
@@ -693,7 +698,12 @@ def analyze():
                     partner_functions=all_functions, hub_threshold=hub_threshold)
 
             # ── 4. Hypothesis streaming ───────────────────────────────────────
-            send("progress", gene=gene, step="llm", message="仮説生成中...")
+            # コンテキスト長からnum_ctxを動的に決定（余裕+生成分3500を加算）
+            ctx_chars = len(context)
+            ctx_tokens_est = ctx_chars // 3  # 英語文字÷3でトークン数を粗推定
+            num_ctx = max(8192, min(32768, ctx_tokens_est + 4096))
+            send("progress", gene=gene, step="llm",
+                 message=f"仮説生成中... (コンテキスト約{ctx_tokens_est:,}トークン)")
             hypothesis_parts = []
 
             def on_token(tok, _gene=gene):
@@ -706,6 +716,7 @@ def analyze():
                 hypothesis = hyp.generate_hypothesis(
                     gene, disease_name, context, llm,
                     lang=lang, stream_callback=on_token,
+                    num_ctx=num_ctx,
                 )
             except _Cancelled:
                 send("stopped", message="ユーザーにより停止されました")

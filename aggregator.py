@@ -236,25 +236,31 @@ def collect_all(
     else:
         results["pathway_connections"] = []
 
-    # パスウェイ隣接遺伝子の論文を補足取得（直接エビデンスが少い場合の文脈補強）
-    # pathway_connections の partner genes について疾患×partner で PubMed 検索し、
-    # 上位論文を "related_gene_papers" として別キーに格納する。
-    partner_papers: dict[str, list] = {}
-    for conn in (results.get("pathway_connections") or [])[:3]:
-        partner = conn.get("partner", "")
-        if not partner:
-            continue
+    # パスウェイ隣接遺伝子の論文を補足取得（並列実行）
+    partners = [
+        conn.get("partner", "")
+        for conn in (results.get("pathway_connections") or [])[:3]
+        if conn.get("partner")
+    ]
+
+    def _fetch_partner_papers(partner: str):
         try:
             papers = pubmed.search_pubmed(
                 partner, disease, max_results=5, disease_efo_id=disease_id
             )
-            # score=0 は除外（隣接遺伝子論文は直接一致のみを使う）
             papers = [p for p in papers if p.get("relevance_score", 0) > 0]
-            if papers:
-                partner_papers[partner] = papers
-                log(f"related papers ({partner}): {len(papers)} 件")
+            return partner, papers
         except Exception as e:
             log(f"related papers ({partner}): FAILED ({e})")
+            return partner, []
+
+    partner_papers: dict[str, list] = {}
+    if partners:
+        with ThreadPoolExecutor(max_workers=len(partners)) as ex:
+            for partner, papers in ex.map(_fetch_partner_papers, partners):
+                if papers:
+                    partner_papers[partner] = papers
+                    log(f"related papers ({partner}): {len(papers)} 件")
     results["related_gene_papers"] = partner_papers
 
     # ── 収集結果サマリー ─────────────────────────────────────────────────────
