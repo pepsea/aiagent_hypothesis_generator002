@@ -574,6 +574,39 @@ def analyze():
                 send("collector_done", gene=gene, source="clinicaltrials", ok=False,
                      summary=f"エラー: {e}", data=None)
 
+            # pathway_connections + related_gene_papers
+            ot_disease_id = ot.get("disease_id") if isinstance(ot, dict) else None
+            results["pathway_connections"] = []
+            results["related_gene_papers"] = {}
+            if ot_disease_id:
+                try:
+                    send("progress", gene=gene, step="collect",
+                         message="パスウェイ隣接遺伝子を解析中...")
+                    disease_genes = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
+                    pathway_connections = reactome.find_pathway_connections(
+                        gene, disease_genes, max_partners=5)
+                    results["pathway_connections"] = pathway_connections
+
+                    # パスウェイ隣接遺伝子の論文を補足取得
+                    partner_papers: dict = {}
+                    for conn in pathway_connections[:3]:
+                        partner = conn.get("partner", "")
+                        if not partner:
+                            continue
+                        try:
+                            papers = pubmed.search_pubmed(
+                                partner, disease_name, max_results=5,
+                                disease_efo_id=disease_id)
+                            papers = [p for p in papers if p.get("relevance_score", 0) > 0]
+                            if papers:
+                                partner_papers[partner] = papers
+                        except Exception:
+                            pass
+                    results["related_gene_papers"] = partner_papers
+                except Exception as e:
+                    send("progress", gene=gene, step="collect",
+                         message=f"パスウェイ解析警告: {e}")
+
             evidence = {"gene": gene, "disease": disease_name,
                         "evidence": results, "collection_errors": errors}
 
