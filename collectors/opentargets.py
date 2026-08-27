@@ -46,6 +46,7 @@ query($efoId: String!) {
   disease(efoId: $efoId) {
     id
     name
+    synonyms { terms scope }
     associatedTargets(enableIndirect: false, page: {index: 0, size: 500}) {
       rows {
         target { id approvedSymbol }
@@ -113,9 +114,10 @@ def get_target_disease_evidence(
         r.raise_for_status()
         target_data = r.json().get("data", {}).get("target") or {}
 
-    # 指定疾患に対するスコア
-    assoc_score   = None
-    datatype_scores = {}
+    # 指定疾患に対するスコア + synonyms
+    assoc_score      = None
+    datatype_scores  = {}
+    disease_synonyms = []
     if ensg_id:
         try:
             r = requests.post(OT_API, json={
@@ -123,8 +125,10 @@ def get_target_disease_evidence(
                 "variables": {"efoId": disease_id}
             }, timeout=30)
             r.raise_for_status()
-            rows = (r.json().get("data", {}).get("disease") or {}) \
-                       .get("associatedTargets", {}).get("rows", [])
+            disease_data = r.json().get("data", {}).get("disease") or {}
+            for syn in disease_data.get("synonyms", []):
+                disease_synonyms.extend(syn.get("terms", []))
+            rows = disease_data.get("associatedTargets", {}).get("rows", [])
             for row in rows:
                 if (row.get("target") or {}).get("id") == ensg_id:
                     assoc_score     = row.get("score")
@@ -174,6 +178,7 @@ def get_target_disease_evidence(
         "ensembl_id":         ensg_id,
         "disease_id":         disease_id,
         "disease_label":      disease_label,
+        "disease_synonyms":   disease_synonyms,
         "association_score":  assoc_score,
         "datatype_scores":    datatype_scores,
         "gene_info": {

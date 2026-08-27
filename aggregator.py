@@ -153,7 +153,6 @@ def collect_all(
         "uniprot":         lambda: uniprot.get_protein_info(gene),
         "intact":          lambda: intact.get_interactions(gene, max_results=15),
         "gwas":            lambda: gwas.get_gwas_associations(gene, disease),
-        "clinvar":         lambda: gwas.get_clinvar_variants(gene),
         "chembl":          lambda: chembl.get_drugs_for_target(gene),
         "gnomad":          lambda: gnomad.get_constraint(gene),
         "gtex":            lambda: gtex.get_tissue_expression(gene),
@@ -192,6 +191,20 @@ def collect_all(
     results["toxicity"] = tox_result
     if tox_err:
         errors["toxicity"] = tox_err
+
+    # ClinVar: opentargets の synonyms を使い疾患関連バリアントに絞り込む
+    ot_result = results.get("opentargets")
+    disease_synonyms = (
+        ot_result.get("disease_synonyms", [])
+        if isinstance(ot_result, dict) else []
+    )
+    cv_result, cv_err = _run_with_retry(
+        lambda: gwas.get_clinvar_variants(gene, disease_query=disease, disease_synonyms=disease_synonyms),
+        "clinvar", max_retries, log,
+    )
+    results["clinvar"] = cv_result
+    if cv_err:
+        errors["clinvar"] = cv_err
 
     # ClinicalTrials: gene-symbol 検索に加え、known_drugs の薬剤名でも検索する
     # （治験の大半は標的遺伝子名ではなく薬剤コード名でしか言及されないため、

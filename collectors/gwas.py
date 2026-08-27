@@ -95,17 +95,32 @@ def get_gwas_associations(gene_symbol: str, disease_query: str = None,
 _CLINVAR_NO_CONDITION = {"", "not provided", "not specified", "see cases"}
 
 
-def get_clinvar_variants(gene_symbol: str, max_results: int = 100) -> list[dict]:
-    """Return ClinVar pathogenic variants for a gene via NCBI API (public domain).
+def get_clinvar_variants(
+    gene_symbol: str,
+    disease_query: str = None,
+    disease_synonyms: list = None,
+    max_results: int = 100,
+) -> list[dict]:
+    """Return ClinVar pathogenic variants for a gene, filtered by disease.
 
     疾患名が分類されている（trait_name が実際の疾患名であり、"not provided"等の
     プレースホルダーではない）レコードを中心に抽出する。候補を多めに取得して
     フィルタしたうえで、最終評価日（last_evaluated）降順で直近優先に並べ、
     最大 max_results 件（デフォルト100）を返す。
+
+    disease_query: 入力疾患名。指定時は esearch クエリと condition ポストフィルタに使用。
+    disease_synonyms: OpenTargets から取得した疾患の同義語リスト（表記ゆらぎ対応）。
     """
     import time
     base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-    query = f"{gene_symbol}[Gene Name] AND (Pathogenic[Clinical significance] OR Likely pathogenic[Clinical significance])"
+
+    # 疾患名を esearch クエリに含めて API 側で絞り込む
+    disease_term = f' AND "{disease_query}"[Disease/Phenotype]' if disease_query else ""
+    query = (
+        f"{gene_symbol}[Gene Name]"
+        f" AND (Pathogenic[Clinical significance] OR Likely pathogenic[Clinical significance])"
+        f"{disease_term}"
+    )
 
     # フィルタで減る分の余裕を持たせて多めに取得
     r = requests.get(f"{base}/esearch.fcgi", params={
@@ -131,6 +146,14 @@ def get_clinvar_variants(gene_symbol: str, max_results: int = 100) -> list[dict]
         return []  # リトライ上限に達した場合は空を返す
     result = r2.json().get("result", {})
 
+    # ポストフィルタ用キーワードセット（入力名 + synonyms + 入力名の個別トークン）
+    filter_terms = []
+    if disease_query:
+        filter_terms.append(disease_query.lower())
+        filter_terms.extend(t.lower() for t in disease_query.split() if len(t) > 3)
+    for syn in (disease_synonyms or []):
+        filter_terms.append(syn.lower())
+
     variants = []
     for vid in ids:
         if vid not in result:
@@ -143,6 +166,11 @@ def get_clinvar_variants(gene_symbol: str, max_results: int = 100) -> list[dict]
         condition = traits[0].get("trait_name", "") if traits else ""
         if condition.strip().lower() in _CLINVAR_NO_CONDITION:
             continue  # 疾患名が分類されていないレコードは対象外
+        # 疾患フィルタ: condition または title に疾患名・synonym が含まれるか確認
+        if filter_terms:
+            target_text = (condition + " " + item.get("title", "")).lower()
+            if not any(term in target_text for term in filter_terms):
+                continue
         variants.append({
             "variant_id": vid,
             "title": item.get("title", ""),
