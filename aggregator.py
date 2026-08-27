@@ -219,6 +219,23 @@ def collect_all(
     if ct_err:
         errors["clinicaltrials"] = ct_err
 
+    # パスウェイ経由の関連解析（opentargets 上位遺伝子 × Reactome 共有パスウェイ）
+    ot_disease_id = ot_result.get("disease_id") if isinstance(ot_result, dict) else None
+    if ot_disease_id:
+        try:
+            disease_genes = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
+            pathway_connections = reactome.find_pathway_connections(
+                gene, disease_genes, max_partners=5
+            )
+            results["pathway_connections"] = pathway_connections
+            log(f"pathway_connections: {len(pathway_connections)} 件")
+        except Exception as e:
+            errors["pathway_connections"] = str(e)
+            results["pathway_connections"] = []
+            log(f"pathway_connections: FAILED ({e})")
+    else:
+        results["pathway_connections"] = []
+
     # ── 収集結果サマリー ─────────────────────────────────────────────────────
     if verbose:
         ORDER = [
@@ -619,6 +636,27 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         sections.append(
             f"## Reactome {ref}\n"
             f"- {len(react_data)} pathways ({len(dpw)} disease): {names}\n"
+        )
+
+    # ── Pathway-level connections (indirect associations) ────────────────────
+    pw_connections = ev.get("pathway_connections") or []
+    if pw_connections:
+        lines = []
+        for conn in pw_connections:
+            partner = conn.get("partner", "")
+            p_score = conn.get("partner_score")
+            p_score_str = f"{p_score:.3f}" if p_score is not None else "N/A"
+            shared = conn.get("shared_pathways", [])
+            pw_names = " | ".join(p["name"] for p in shared[:3])
+            lines.append(
+                f"  - {gene} ↔ {partner} (disease assoc score: {p_score_str}): {pw_names}"
+            )
+        sections.append(
+            f"## Pathway-level Indirect Connections\n"
+            f"Genes strongly associated with {disease} that share pathways with {gene}:\n"
+            + "\n".join(lines) + "\n"
+            + f"Note: These pathway connections suggest {gene} may influence {disease} "
+              f"indirectly through shared biological mechanisms.\n"
         )
 
     # ── References (compact) ──────────────────────────────────────────────

@@ -94,6 +94,72 @@ def get_disease_pathways(gene_symbol: str, uniprot_id: str = "") -> list[dict]:
     return [p for p in all_pathways if p["is_disease"]]
 
 
+def _get_pathway_ids(gene_symbol: str) -> set[str]:
+    """遺伝子のパスウェイ ID セットを返す（共有パスウェイ検索用）。"""
+    pathways = get_pathways(gene_symbol, top_n=50)
+    return {p["pathway_id"] for p in pathways}
+
+
+def find_pathway_connections(
+    target_gene: str,
+    disease_genes: list[dict],
+    max_partners: int = 5,
+) -> list[dict]:
+    """ターゲット遺伝子と疾患関連遺伝子の共有パスウェイを検索する。
+
+    Parameters
+    ----------
+    target_gene   : 解析対象の遺伝子シンボル（例: "IHH"）
+    disease_genes : OpenTargets から取得した疾患上位遺伝子リスト
+                    [{"symbol": "FGFR3", "score": 0.9}, ...]
+    max_partners  : 共有パスウェイを検索する疾患遺伝子の最大数
+
+    Returns
+    -------
+    [{"partner": "FGFR3", "partner_score": 0.9,
+      "shared_pathways": [{"pathway_id": "R-...", "name": "...", "url": "..."}]}]
+    """
+    target_pathway_ids = _get_pathway_ids(target_gene)
+    if not target_pathway_ids:
+        return []
+
+    target_pathways_map = {
+        p["pathway_id"]: p
+        for p in get_pathways(target_gene, top_n=50)
+    }
+
+    connections = []
+    checked = 0
+    for gene_info in disease_genes:
+        symbol = gene_info.get("symbol", "")
+        if not symbol or symbol.upper() == target_gene.upper():
+            continue
+        if checked >= max_partners:
+            break
+        checked += 1
+
+        partner_ids = _get_pathway_ids(symbol)
+        shared_ids = target_pathway_ids & partner_ids
+        if not shared_ids:
+            continue
+
+        shared = [
+            target_pathways_map[pid]
+            for pid in shared_ids
+            if pid in target_pathways_map
+        ]
+        # 疾患関連パスウェイを優先、次に名前順
+        shared.sort(key=lambda p: (not p.get("is_disease"), p.get("name", "")))
+
+        connections.append({
+            "partner":          symbol,
+            "partner_score":    gene_info.get("score"),
+            "shared_pathways":  shared[:5],
+        })
+
+    return connections
+
+
 def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
     """Return physical interactions from Reactome ContentService.
 

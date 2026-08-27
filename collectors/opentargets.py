@@ -55,6 +55,39 @@ query($efoId: String!) {
 }
 """
 
+# 疾患の上位関連遺伝子を取得（パスウェイ解析用）
+DISEASE_TOP_GENES_QUERY = """
+query($efoId: String!, $size: Int!) {
+  disease(efoId: $efoId) {
+    associatedTargets(enableIndirect: true, page: {index: 0, size: $size}) {
+      rows {
+        target { id approvedSymbol }
+        score
+      }
+    }
+  }
+}
+"""
+
+
+def get_disease_top_genes(disease_id: str, top_n: int = 20) -> list[dict]:
+    """疾患に関連するスコア上位の遺伝子リストを返す（パスウェイ解析用）。"""
+    try:
+        r = requests.post(OT_API, json={
+            "query": DISEASE_TOP_GENES_QUERY,
+            "variables": {"efoId": disease_id, "size": top_n},
+        }, timeout=20)
+        r.raise_for_status()
+        rows = (r.json().get("data", {}).get("disease") or {}) \
+                   .get("associatedTargets", {}).get("rows", [])
+        return [
+            {"symbol": row["target"]["approvedSymbol"], "score": row["score"]}
+            for row in rows if row.get("target")
+        ]
+    except Exception:
+        return []
+
+
 # 遺伝子×疾患ペアを直接指定してスコアを取得（size制限の影響を受けない）
 PAIR_SCORE_QUERY = """
 query($ensgId: String!, $efoId: String!) {
