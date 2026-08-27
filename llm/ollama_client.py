@@ -54,7 +54,7 @@ class OllamaClient:
             f"{self.base_url}/api/generate",
             json=payload,
             stream=use_stream,
-            timeout=300,
+            timeout=600,
         )
         r.raise_for_status()
 
