@@ -34,6 +34,7 @@ List existing drugs targeting {gene} with phase and mechanism. State whether any
 ### 1d. Expression & Network
 State the top expressing tissues from GTEx (TPM values) and HPA. Note subcellular location and protein class.
 Describe key PPI partners and pathway memberships relevant to {disease}.
+Also reference the "Disease Pathway Analysis" section: state the pathway_overlap_score, name the top disease pathways, and whether {gene} is a direct member.
 
 ### 1e. Overall Validity Score
 **Overall: Low / Moderate / High / Very High**

@@ -4,7 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collectors import (
     pubmed, opentargets, intact, uniprot, gwas, chembl, toxicity,
-    gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold, reactome,
+    gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold, reactome, gprofiler,
 )
 
 MAX_RETRIES = 3          # 最大リトライ回数
@@ -235,6 +235,35 @@ def collect_all(
             log(f"pathway_connections: FAILED ({e})")
     else:
         results["pathway_connections"] = []
+
+    # Disease pathway enrichment + target gene pathway fit assessment
+    if ot_disease_id:
+        try:
+            disease_genes_for_enrich = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
+            enriched = gprofiler.enrich_gene_list([g["symbol"] for g in disease_genes_for_enrich])
+            disease_pathway_ids = {p["term_id"] for p in enriched if p["source"] == "REAC"}
+            target_in = reactome.get_gene_pathway_membership(gene, disease_pathway_ids)
+            score = len(target_in) / max(1, min(20, len(disease_pathway_ids)))
+            results["pathway_fit"] = {
+                "disease_pathways": enriched[:20],
+                "target_in_disease_pathways": target_in,
+                "pathway_overlap_score": round(score, 3),
+                "gene_list_size": len(disease_genes_for_enrich),
+            }
+            log(f"pathway_fit: score={results['pathway_fit']['pathway_overlap_score']}, "
+                f"target_in={len(target_in)} pathways")
+        except Exception as e:
+            errors["pathway_fit"] = str(e)
+            results["pathway_fit"] = {
+                "disease_pathways": [], "target_in_disease_pathways": [],
+                "pathway_overlap_score": 0.0, "gene_list_size": 0,
+            }
+            log(f"pathway_fit: FAILED ({e})")
+    else:
+        results["pathway_fit"] = {
+            "disease_pathways": [], "target_in_disease_pathways": [],
+            "pathway_overlap_score": 0.0, "gene_list_size": 0,
+        }
 
     # パスウェイ隣接遺伝子の論文を補足取得（並列実行）
     partners = [
@@ -685,6 +714,42 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             + f"Note: These pathway connections suggest {gene} may influence {disease} "
               f"indirectly through shared biological mechanisms.\n"
         )
+
+    # ── Disease Pathway Analysis (g:Profiler enrichment + target fit) ─────────
+    pathway_fit = ev.get("pathway_fit") or {}
+    if pathway_fit:
+        disease_pathways = pathway_fit.get("disease_pathways") or []
+        target_in = pathway_fit.get("target_in_disease_pathways") or []
+        overlap_score = pathway_fit.get("pathway_overlap_score", 0.0)
+        gene_list_size = pathway_fit.get("gene_list_size", 0)
+
+        pw_lines = [
+            f"## Disease Pathway Analysis\n"
+            f"Disease-associated pathways (from g:Profiler enrichment of top {gene_list_size} {disease} genes):"
+        ]
+        for pw in disease_pathways[:10]:
+            src = pw.get("source", "")
+            name = pw.get("name", "")
+            pval = pw.get("p_value", 1.0)
+            isect = pw.get("intersection_size", 0)
+            tsize = pw.get("term_size", 0)
+            pw_lines.append(f"- [{src}] {name} (p={pval:.3g}, {isect} of {tsize} disease genes)")
+
+        total_reac = sum(1 for p in disease_pathways if p.get("source") == "REAC")
+        pw_lines.append(f"\nTarget gene {gene} membership in disease pathways:")
+        pw_lines.append(
+            f"- Direct member of {len(target_in)}/{total_reac} top disease pathways "
+            f"(overlap score: {overlap_score:.2f})"
+        )
+        if target_in:
+            names = ", ".join(p.get("name", p.get("pathway_id", "")) for p in target_in[:5])
+            pw_lines.append(f"- Present in: {names}")
+        else:
+            pw_lines.append(
+                f"- Not directly present in top disease pathways "
+                f"(indirect connection via shared pathway partners)"
+            )
+        sections.append("\n".join(pw_lines) + "\n")
 
     # ── Related gene papers (pathway-connected partners) ────────────────────
     related_gene_papers = ev.get("related_gene_papers") or {}

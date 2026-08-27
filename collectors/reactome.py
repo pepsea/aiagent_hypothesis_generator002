@@ -223,3 +223,20 @@ def get_interactions(gene_symbol: str, max_results: int = 50) -> list[dict]:
 
     _save_cache(gene_symbol, interactions)
     return interactions
+
+
+def get_gene_pathway_membership(gene_symbol: str, disease_pathway_ids: set) -> list:
+    """Check which disease-associated pathways the target gene belongs to.
+
+    Returns list of matching pathways with membership info.
+    [{"pathway_id": "R-HSA-...", "name": "...", "url": "..."}]
+    """
+    gene_pathways = get_pathways(gene_symbol, top_n=100)
+    gene_pathway_ids = {p["pathway_id"] for p in gene_pathways}
+    gene_pathway_map = {p["pathway_id"]: p for p in gene_pathways}
+
+    matched = []
+    for pid in disease_pathway_ids:
+        if pid in gene_pathway_ids:
+            matched.append(gene_pathway_map[pid])
+    return matched

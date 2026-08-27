@@ -612,6 +612,31 @@ def analyze():
                     send("progress", gene=gene, step="collect",
                          message=f"パスウェイ解析警告: {e}")
 
+            # Disease pathway enrichment + target fit assessment
+            from collectors import gprofiler
+            results["pathway_fit"] = {
+                "disease_pathways": [], "target_in_disease_pathways": [],
+                "pathway_overlap_score": 0.0, "gene_list_size": 0,
+            }
+            if ot_disease_id:
+                try:
+                    send("progress", gene=gene, step="collect",
+                         message="疾患パスウェイエンリッチメント解析中...")
+                    disease_genes_enrich = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
+                    enriched = gprofiler.enrich_gene_list([g["symbol"] for g in disease_genes_enrich])
+                    disease_pathway_ids = {p["term_id"] for p in enriched if p["source"] == "REAC"}
+                    target_in = reactome.get_gene_pathway_membership(gene, disease_pathway_ids)
+                    score = len(target_in) / max(1, min(20, len(disease_pathway_ids)))
+                    results["pathway_fit"] = {
+                        "disease_pathways": enriched[:20],
+                        "target_in_disease_pathways": target_in,
+                        "pathway_overlap_score": round(score, 3),
+                        "gene_list_size": len(disease_genes_enrich),
+                    }
+                except Exception as e:
+                    send("progress", gene=gene, step="collect",
+                         message=f"パスウェイエンリッチメント警告: {e}")
+
             evidence = {"gene": gene, "disease": disease_name,
                         "evidence": results, "collection_errors": errors}
 

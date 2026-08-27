@@ -1,0 +1,58 @@
+"""g:Profiler — pathway enrichment for a gene list (free, no key required).
+
+POST https://biit.cs.ut.ee/gprofiler/api/gost/profile/
+Returns enriched terms from Reactome (REAC), KEGG, and GO:BP.
+"""
+import requests
+
+GPROFILER_API = "https://biit.cs.ut.ee/gprofiler/api/gost/profile/"
+
+def enrich_gene_list(
+    gene_symbols: list[str],
+    organism: str = "hsapiens",
+    sources: list[str] = None,
+    significance_threshold: float = 0.05,
+    max_results: int = 30,
+) -> list[dict]:
+    """Run g:Profiler enrichment on a list of gene symbols.
+
+    Returns list of enriched pathways sorted by p-value:
+    [{"source": "REAC", "term_id": "R-HSA-...", "name": "...", "p_value": 0.001,
+      "intersection_size": 5, "term_size": 120, "genes": [...]}]
+    """
+    if not gene_symbols:
+        return []
+    if sources is None:
+        sources = ["REAC", "KEGG", "GO:BP"]
+
+    try:
+        payload = {
+            "organism": organism,
+            "query": gene_symbols,
+            "sources": sources,
+            "user_threshold": significance_threshold,
+            "ordered": False,
+            "all_results": False,
+            "no_evidences": False,
+        }
+        r = requests.post(GPROFILER_API, json=payload, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return []
+
+    results_raw = (data.get("result") or [])
+    results = []
+    for item in results_raw:
+        results.append({
+            "source":            item.get("source", ""),
+            "term_id":           item.get("native", ""),
+            "name":              item.get("name", ""),
+            "p_value":           item.get("p_value", 1.0),
+            "intersection_size": item.get("intersection_size", 0),
+            "term_size":         item.get("term_size", 0),
+            "genes":             item.get("intersections", []),
+        })
+
+    results.sort(key=lambda x: x["p_value"])
+    return results[:max_results]
