@@ -946,7 +946,7 @@ function initCollectorGrid(gene, sources) {
   const id = cardId(gene);
   const grid = document.getElementById(id + "-collector-grid");
   if (!grid) return;
-  grid.innerHTML = sources.concat(["toxicity", "clinicaltrials"]).map(src => `
+  grid.innerHTML = sources.concat(["clinvar", "toxicity", "clinicaltrials"]).map(src => `
     <div class="collector-chip loading" id="${id}-chip-${src}">
       <div class="chip-name">${SRC_LABEL[src] || src}</div>
       <div class="chip-detail">取得中...</div>
