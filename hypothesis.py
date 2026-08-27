@@ -97,18 +97,25 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 ---
 
 ## 8. Recommended Experiments
-Design 3–5 experiments directly justified by the evidence above. For each, be specific:
-- Use the actual genetic variants, drugs, cell lines, or animal models mentioned in the context.
-- Endpoint must be measurable (e.g., IC50, % viability, bone length Z-score, histology score).
-- Expected result must be falsifiable (a specific direction and magnitude if possible).
 
-| # | Experiment Type | Specific Design | Primary Endpoint | Expected Result | Evidence Basis |
-|---|---|---|---|---|---|
-| 1 | (in vitro / in vivo / ex vivo / clinical) | (cell line/model, compound/perturbation, dose/duration) | (measurable readout) | (specific prediction) | (cite tag) |
-| 2 | | | | | |
-| 3 | | | | | |
+Design exactly 5 experiments. Each must be written as a fully self-contained protocol paragraph — do NOT use a table. Follow this format for every experiment:
 
-Prioritise: (1) genetic validation, (2) pharmacological proof-of-concept, (3) translational/biomarker study.
+**Experiment [N]: [Descriptive Title]**
+- **Rationale:** Why this experiment is critical given the evidence above (cite tag).
+- **Model / System:** Exact cell line, organism, or patient cohort (e.g., "ATDC5 chondrocytes", "Fgfr3Y367C/+ knock-in mice", "primary growth-plate chondrocytes from FGFR3-p.N540K patients"). If a specific model is mentioned in the context, use it; otherwise propose the most appropriate established model and justify.
+- **Perturbation:** Exact genetic or pharmacological intervention (e.g., "lentiviral shRNA knockdown of {gene}", "10 µM compound X for 72 h", "CRISPR-Cas9 introduction of variant rs[ID]"). Include dose, duration, and controls.
+- **Primary Endpoint:** Single measurable readout with unit and assay method (e.g., "bone length Z-score by µCT at 8 weeks", "IC50 by CellTiter-Glo viability assay", "phospho-ERK1/2 / total-ERK ratio by western blot").
+- **Secondary Endpoints:** 1–2 additional readouts that mechanistically confirm the primary result.
+- **Expected Result:** Specific directional prediction with magnitude where possible (e.g., "≥40% reduction in chondrocyte proliferation vs. control", "rescue of bone length to within 1 SD of wild-type").
+- **Failure criterion / falsifiability:** What result would refute the hypothesis?
+- **Timeline:** Estimated duration to first result.
+
+Prioritise in this order:
+1. Genetic validation of the variant/target (CRISPR / patient-derived cells / knock-in model)
+2. Pharmacological proof-of-concept (small molecule, antibody, or ASO in disease-relevant model)
+3. Mechanism confirmation (pathway-level readout linking {gene} perturbation to downstream effectors)
+4. Biomarker / translational study (patient tissue, plasma, or imaging)
+5. Safety / selectivity assessment
 
 ---
 
@@ -218,9 +225,25 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 ---
 
 ## 8. 推奨次期実験
-| 実験種別 | エンドポイント | 期待される結果 |
-|---|---|---|
-| （上記エビデンスに基づく具体的な実験を3〜5件） | | |
+
+5件の実験を設計すること。各実験は完全な自己完結型のプロトコル段落として記述する（表形式は使わない）。各実験は以下の形式で書くこと：
+
+**実験[N]：[実験の説明的タイトル]**
+- **実施理由：** 上記のエビデンスを踏まえ、なぜこの実験が重要か（引用タグを付ける）。
+- **モデル/系：** 具体的な細胞株・動物・患者コホート（例:「ATDC5軟骨細胞」「Fgfr3Y367C/+ノックインマウス」「FGFR3-p.N540K患者由来初代成長板軟骨細胞」）。コンテキストに特定モデルが記載されていればそれを使い、なければ最適な既存モデルを根拠とともに提案する。
+- **介入：** 遺伝的または薬理学的介入の具体的内容（例:「{gene}のレンチウイルスshRNAノックダウン」「化合物X 10 µMを72時間投与」「CRISPR-Cas9によるrs[ID]変異の導入」）。投与量・期間・対照群を明記。
+- **主要エンドポイント：** 単一の測定可能な読み取り値（単位・アッセイ手法を含む）（例:「8週時点のµCTによる骨長Zスコア」「CellTiter-GloによるIC50」「ウエスタンブロットによるphospho-ERK1/2/total-ERK比」）。
+- **副次エンドポイント：** 主要エンドポイントを機序的に裏付ける追加読み取り値を1〜2つ。
+- **期待される結果：** 可能であれば変化の方向と大きさを具体的に予測（例:「対照群と比べて軟骨細胞増殖が≥40%減少」「骨長が野生型の1SD以内に回復」）。
+- **反証基準：** どのような結果が出れば仮説が否定されるか。
+- **タイムライン：** 最初の結果が得られるまでの推定期間。
+
+優先順位：
+1. 変異/標的の遺伝的検証（CRISPR/患者由来細胞/ノックインモデル）
+2. 薬理学的概念実証（疾患関連モデルでの低分子・抗体・ASOによる検証）
+3. メカニズム確認（{gene}の摂動から下流エフェクターへのパスウェイレベルの読み取り）
+4. バイオマーカー/トランスレーショナル研究（患者組織・血漿・イメージング）
+5. 安全性/選択性評価
 
 ---
 
