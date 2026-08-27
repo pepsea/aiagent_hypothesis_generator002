@@ -254,7 +254,7 @@ DEFAULT_CONTEXT_CONFIG = dict(
     abstract_chars   = 600,  # アブストラクト1件あたりの文字数
     max_drugs        = 8,    # 薬剤数（ChEMBL+OpenTargets合計）
     max_gwas         = 5,    # GWAS ヒット数
-    max_clinvar      = 5,    # ClinVar バリアント数
+    max_clinvar      = 20,   # ClinVar バリアント数
     max_interactions = 10,   # PPI インタラクター数
     max_trials       = 10,   # 臨床試験数（context に含める直近件数。全件数自体は別途表示）
     max_reactome     = 10,   # Reactome パスウェイ数
@@ -374,14 +374,17 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
     if cv_hits:
         lines = []
         for v in cv_hits[:cfg["max_clinvar"]]:
-            vid = str(v.get("uid", ""))
+            vid = str(v.get("variant_id") or v.get("uid", ""))
             url = (f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{vid}/"
                    if vid else f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}")
             short = f"ClinVar VarID:{vid} {v.get('clinical_significance','')}. {url}"
             full  = (f"Landrum MJ et al. ClinVar. Nucleic Acids Res. 2020;48(D1):D835-D844. "
                      f"Variant: {v.get('title','')[:80]} [VarID:{vid}]. {url}")
             ref = add_ref("disease", "ClinVar", short, full, url)
-            lines.append(f"  - {v['title'][:65]} | {v['clinical_significance']} | {v['condition']} {ref}")
+            lines.append(
+                f"  - {v.get('title','')[:65]} | {v.get('clinical_significance','')} "
+                f"| {v.get('condition','')} | {v.get('review_status','')} {ref}"
+            )
         sections.append(f"## ClinVar Variants\n" + "\n".join(lines) + "\n")
 
     # ── Existing drugs ─────────────────────────────────────────────────────
