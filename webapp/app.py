@@ -737,6 +737,14 @@ def analyze():
                 hypothesis = rpt.strip_llm_references(hypothesis) + "\n\n---\n\n" + references_section
                 q.put({"type": "token", "gene": gene, "token": "\n\n---\n\n" + references_section})
 
+            # 使用論文リストをフロントエンドに送信（データ取得タブの Paper タグ対応表示用）
+            paper_refs = (evidence.get("full_references") or {}).get("paper", [])
+            if paper_refs:
+                send("cited_papers", gene=gene, papers=[
+                    {"tag": tag, "title": full, "url": url}
+                    for tag, full, url in paper_refs
+                ])
+
             # ── 5. Save report ────────────────────────────────────────────────
             send("progress", gene=gene, step="saving", message="レポート保存中...")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")

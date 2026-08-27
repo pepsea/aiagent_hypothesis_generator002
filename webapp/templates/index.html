@@ -615,6 +615,8 @@ function handleEvent(ev) {
       break;
     case "token":
       appendToken(ev.gene, ev.token); break;
+    case "cited_papers":
+      renderCitedPapers(ev.gene, ev.papers); break;
     case "gene_done":
       logMsg(`  ✓ ${ev.gene} 完了`, "ok");
       setGeneStatus(ev.gene, "done", "✓ 完了");
@@ -793,6 +795,19 @@ function renderPartners(gene, partners) {
     <p style="font-size:13px;color:var(--text-sub);margin-bottom:10px;">PPIパートナー (${partners.length}遺伝子)</p>
     <div class="partner-list">${tags}</div>
     <p style="margin-top:14px;font-size:12px;color:var(--text-sub);">ネットワーク画像は解析完了後に表示されます</p>`;
+}
+
+function renderCitedPapers(gene, papers) {
+  if (!papers || !papers.length) return;
+  // collectorData に cited_papers を保存し、PubMedチップ表示時に使えるようにする
+  if (!collectorData[gene]) collectorData[gene] = {};
+  collectorData[gene]["_cited_papers"] = papers;
+  // 現在 pubmed の詳細を表示中なら再描画
+  const id = cardId(gene);
+  const detailEl = document.getElementById(id + "-data-detail");
+  if (detailEl && detailEl.dataset.currentSource === "pubmed") {
+    showDataDetail(gene, "pubmed");
+  }
 }
 
 function finalizeGene(gene, ev) {
@@ -992,11 +1007,11 @@ function showDataDetail(gene, source) {
   const data = (collectorData[gene] || {})[source];
   el.innerHTML = `<div class="data-section">
     <div class="data-section-title">${SRC_LABEL[source] || source}</div>
-    ${renderDataDetail(source, data)}
+    ${renderDataDetail(source, data, gene)}
   </div>`;
 }
 
-function renderDataDetail(source, data) {
+function renderDataDetail(source, data, gene) {
   if (!data) return '<span style="color:var(--text-sub);font-size:13px;">データなし</span>';
   try {
     if (source === "pubmed" && data.papers) {
@@ -1019,7 +1034,23 @@ function renderDataDetail(source, data) {
           </div>
           <div class="abstract-text">${esc(p.abstract)}${p.abstract ? "..." : ""}</div>
         </div>`;
-      return summary + data.papers.map(paperHtml).join("");
+      // 仮説で使用された論文（タグ付き）を先頭に表示
+      const cited = gene ? ((collectorData[gene] || {})["_cited_papers"] || []) : [];
+      let citedHtml = "";
+      if (cited.length) {
+        const citedRows = cited.map(p => `
+          <div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap;min-width:72px;">${esc(p.tag)}</span>
+            <span style="font-size:12px;">${p.url
+              ? `<a href="${esc(p.url)}" target="_blank">${esc(p.title)}</a>`
+              : esc(p.title)}</span>
+          </div>`).join("");
+        citedHtml = `<div style="margin-bottom:14px;padding:10px;background:var(--bg-sub,#f0f4ff);border-radius:7px;border:1px solid var(--accent);">
+          <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px;">📄 仮説で引用された論文 — ${cited.length}件（[Paper N] タグ対応）</div>
+          ${citedRows}
+        </div>`;
+      }
+      return citedHtml + summary + data.papers.map(paperHtml).join("");
     }
     if (source === "opentargets" && data) {
       const otLinks = [];
