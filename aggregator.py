@@ -236,6 +236,27 @@ def collect_all(
     else:
         results["pathway_connections"] = []
 
+    # パスウェイ隣接遺伝子の論文を補足取得（直接エビデンスが少い場合の文脈補強）
+    # pathway_connections の partner genes について疾患×partner で PubMed 検索し、
+    # 上位論文を "related_gene_papers" として別キーに格納する。
+    partner_papers: dict[str, list] = {}
+    for conn in (results.get("pathway_connections") or [])[:3]:
+        partner = conn.get("partner", "")
+        if not partner:
+            continue
+        try:
+            papers = pubmed.search_pubmed(
+                partner, disease, max_results=5, disease_efo_id=disease_id
+            )
+            # score=0 は除外（隣接遺伝子論文は直接一致のみを使う）
+            papers = [p for p in papers if p.get("relevance_score", 0) > 0]
+            if papers:
+                partner_papers[partner] = papers
+                log(f"related papers ({partner}): {len(papers)} 件")
+        except Exception as e:
+            log(f"related papers ({partner}): FAILED ({e})")
+    results["related_gene_papers"] = partner_papers
+
     # ── 収集結果サマリー ─────────────────────────────────────────────────────
     if verbose:
         ORDER = [
@@ -658,6 +679,28 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             + f"Note: These pathway connections suggest {gene} may influence {disease} "
               f"indirectly through shared biological mechanisms.\n"
         )
+
+    # ── Related gene papers (pathway-connected partners) ────────────────────
+    related_gene_papers = ev.get("related_gene_papers") or {}
+    for partner_gene, papers in related_gene_papers.items():
+        if not papers:
+            continue
+        lines = [f"## Related Literature: {partner_gene} × {disease}",
+                 f"(Pathway-connected gene; papers included for mechanistic context)\n"]
+        for p in papers:
+            pmid  = p.get("pmid", "")
+            title = p.get("title", "")
+            year  = p.get("year", "")
+            abstract = p.get("abstract", "") or ""
+            url   = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+            short = f"{partner_gene} paper — {title[:80]}... ({year})"
+            full  = f"{title} ({year})"
+            ref = add_ref("paper", "Paper", short, full, url)
+            lines.append(f"{ref} [{year}] {title}")
+            if abstract:
+                lines.append(f"Abstract: {abstract[:300]}...")
+            lines.append("")
+        sections.append("\n".join(lines))
 
     # ── References (compact) ──────────────────────────────────────────────
     HEADERS = {
