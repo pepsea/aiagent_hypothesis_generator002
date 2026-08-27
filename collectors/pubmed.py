@@ -381,23 +381,22 @@ def search_pubmed(
     _score_papers(papers, gene, gene_syns, disease, disease_syns)
 
     # score==0（タイトル/アブストラクトに遺伝子名・疾患名いずれかの実際の語が
-    # 出てこない「内容参照」papers、MeSH等の間接一致のみ）はラベルを付けて末尾に残す。
-    # 完全に除外すると直接エビデンスが少ない遺伝子×疾患ペアで論文数ゼロになるため。
-    direct  = [p for p in papers if p["relevance_score"] > 0]
+    # 出てこない「内容参照」papers、MeSH等の間接一致のみ）は原則除外する。
+    # 直接一致が1件もない場合のみ最終手段として末尾に補充する（論文ゼロ防止）。
+    direct   = [p for p in papers if p["relevance_score"] > 0]
     indirect = [p for p in papers if p["relevance_score"] == 0]
-    for p in indirect:
-        p["match_type"] = "間接一致（MeSH等）"
 
     # 臨床研究を優先し（is_clinical 降順）、その中で関連度→年の順に並べる。
     direct.sort(key=lambda p: (p["is_clinical"], p["relevance_score"], p["year"]), reverse=True)
+
+    if direct:
+        return direct[:max_results]
+
+    # 直接一致が全くない場合のみ間接一致を返す（最終手段）
+    for p in indirect:
+        p["match_type"] = "間接一致（MeSH等）"
     indirect.sort(key=lambda p: (p["is_clinical"], p["year"]), reverse=True)
-
-    # 直接一致論文を先に、間接一致は残り枠を補充する形で結合する。
-    combined = direct[:max_results]
-    if len(combined) < max_results:
-        combined += indirect[:max_results - len(combined)]
-
-    return combined
+    return indirect[:max_results]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
