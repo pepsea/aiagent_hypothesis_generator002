@@ -58,6 +58,26 @@ query($efoId: String!) {
 }
 """
 
+# 遺伝子×疾患ペアを直接指定してスコアを取得（size制限の影響を受けない）
+PAIR_SCORE_QUERY = """
+query($ensgId: String!, $efoId: String!) {
+  target(ensemblId: $ensgId) {
+    approvedSymbol
+    associatedDiseases(
+      enableIndirect: false
+      filter: { ids: [$efoId] }
+      page: { index: 0, size: 1 }
+    ) {
+      rows {
+        disease { id name }
+        score
+        datatypeScores { id score }
+      }
+    }
+  }
+}
+"""
+
 SEARCH_QUERY = """
 query($q: String!, $entity: [String!]) {
   search(queryString: $q, entityNames: $entity, page: {index: 0, size: 5}) {
@@ -114,11 +134,33 @@ def get_target_disease_evidence(
         r.raise_for_status()
         target_data = r.json().get("data", {}).get("target") or {}
 
-    # 指定疾患に対するスコア + synonyms
+    # 指定疾患に対するスコア（遺伝子×疾患ペアを直接指定して確実に取得）
     assoc_score      = None
     datatype_scores  = {}
     disease_synonyms = []
-    if ensg_id:
+    if ensg_id and disease_id:
+        # ① ペアクエリでスコアを取得（size制限の影響を受けない）
+        try:
+            r = requests.post(OT_API, json={
+                "query": PAIR_SCORE_QUERY,
+                "variables": {"ensgId": ensg_id, "efoId": disease_id}
+            }, timeout=20)
+            r.raise_for_status()
+            pair_rows = (
+                (r.json().get("data", {}).get("target") or {})
+                .get("associatedDiseases", {})
+                .get("rows", [])
+            )
+            if pair_rows:
+                assoc_score     = pair_rows[0].get("score")
+                datatype_scores = {
+                    d["id"]: d["score"]
+                    for d in pair_rows[0].get("datatypeScores", [])
+                }
+        except Exception:
+            pass
+
+        # ② synonyms は disease クエリから取得
         try:
             r = requests.post(OT_API, json={
                 "query": SCORE_QUERY,
@@ -128,12 +170,14 @@ def get_target_disease_evidence(
             disease_data = r.json().get("data", {}).get("disease") or {}
             for syn in disease_data.get("synonyms", []):
                 disease_synonyms.extend(syn.get("terms", []))
-            rows = disease_data.get("associatedTargets", {}).get("rows", [])
-            for row in rows:
-                if (row.get("target") or {}).get("id") == ensg_id:
-                    assoc_score     = row.get("score")
-                    datatype_scores = {d["id"]: d["score"] for d in row.get("datatypeScores", [])}
-                    break
+            # ペアクエリでスコアが取れなかった場合のフォールバック
+            if assoc_score is None:
+                rows = disease_data.get("associatedTargets", {}).get("rows", [])
+                for row in rows:
+                    if (row.get("target") or {}).get("id") == ensg_id:
+                        assoc_score     = row.get("score")
+                        datatype_scores = {d["id"]: d["score"] for d in row.get("datatypeScores", [])}
+                        break
         except Exception:
             pass
 
