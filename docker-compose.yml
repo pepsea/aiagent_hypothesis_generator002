@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       # ホストで動くOllamaに接続する。
       # Mac/Windows Docker Desktop: host.docker.internal が使える。
