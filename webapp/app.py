@@ -162,6 +162,7 @@ _SRC_LABEL = {
     "chembl": "ChEMBL", "gnomad": "gnomAD", "gtex": "GTEx",
     "hpa": "HPA", "dgidb": "DGIdb", "clinicaltrials": "ClinicalTrials",
     "alphafold": "AlphaFold", "reactome": "Reactome", "toxicity": "Toxicity",
+    "pathway_fit": "疾患パスウェイ",
 }
 
 def _collector_summary(key: str, result, err: str | None) -> str:
@@ -239,6 +240,11 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         return "取得済み"
     if key == "reactome":
         return f"{len(result)} パスウェイ" if isinstance(result, list) else "取得済み"
+    if key == "pathway_fit" and isinstance(result, dict):
+        score = result.get("pathway_overlap_score", 0)
+        n_dp  = len(result.get("disease_pathways", []))
+        n_in  = len(result.get("target_in_disease_pathways", []))
+        return f"スコア {score:.2f} / 疾患パスウェイ {n_dp} 件 / 遺伝子一致 {n_in} 件"
     if key == "toxicity":
         if isinstance(result, dict):
             tc = result.get("toxcast") or {}
@@ -392,6 +398,24 @@ def _collector_data(key: str, result) -> dict | None:
             return {"pathways": [{"name": p.get("name", "") or p.get("pathway_name", ""),
                                    "id": p.get("pathway_id", ""),
                                    "is_disease": p.get("is_disease", False)} for p in result[:15]]}
+        if key == "pathway_fit" and isinstance(result, dict):
+            return {
+                "pathway_overlap_score": result.get("pathway_overlap_score", 0),
+                "gene_list_size": result.get("gene_list_size", 0),
+                "disease_pathways": [
+                    {"source": p.get("source", ""), "term_id": p.get("term_id", ""),
+                     "name": p.get("term_name", p.get("name", "")),
+                     "p_value": p.get("p_value", 1.0),
+                     "intersection_size": p.get("intersection_size", 0),
+                     "genes": p.get("genes", [])}
+                    for p in (result.get("disease_pathways") or [])[:20]
+                ],
+                "target_in_disease_pathways": [
+                    {"name": p.get("name", ""), "pathway_id": p.get("pathway_id", ""),
+                     "url": p.get("url", ""), "is_disease": p.get("is_disease", False)}
+                    for p in (result.get("target_in_disease_pathways") or [])
+                ],
+            }
         if key == "toxicity" and isinstance(result, dict):
             tc = result.get("toxcast") or {}
             return {
@@ -636,6 +660,13 @@ def analyze():
                 except Exception as e:
                     send("progress", gene=gene, step="collect",
                          message=f"パスウェイエンリッチメント警告: {e}")
+
+            # pathway_fit をデータタブに送信
+            pf = results.get("pathway_fit")
+            if pf and isinstance(pf, dict) and pf.get("disease_pathways"):
+                send("collector_done", gene=gene, source="pathway_fit", ok=True,
+                     summary=_collector_summary("pathway_fit", pf, None),
+                     data=_collector_data("pathway_fit", pf))
 
             evidence = {"gene": gene, "disease": disease_name,
                         "evidence": results, "collection_errors": errors}

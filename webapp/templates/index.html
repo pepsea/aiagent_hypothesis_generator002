@@ -1300,6 +1300,44 @@ function renderDataDetail(source, data, gene) {
         <td style="font-size:11px;"><a href="https://reactome.org/PathwayBrowser/#/${esc(p.id)}" target="_blank">${esc(p.id)}</a></td></tr>`).join("");
       return `<table class="data-table"><thead><tr><th>パスウェイ</th><th>ID</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
+    if (source === "pathway_fit") {
+      const score = (data.pathway_overlap_score ?? 0).toFixed(3);
+      const nIn   = (data.target_in_disease_pathways || []).length;
+      const nDp   = (data.disease_pathways || []).length;
+      // ターゲット遺伝子が疾患パスウェイに含まれるかどうかのサマリー
+      let inPathHtml = "";
+      if (nIn > 0) {
+        const inRows = (data.target_in_disease_pathways || []).map(p => `<tr>
+          <td>${p.url ? `<a href="${esc(p.url)}" target="_blank">${esc(p.name)}</a>` : esc(p.name)}</td>
+          <td style="font-size:11px;">${esc(p.pathway_id||"")}</td>
+          <td>${p.is_disease ? '<span class="badge low">disease</span>' : ''}</td></tr>`).join("");
+        inPathHtml = `<h4 style="margin:12px 0 6px;font-size:13px;">✅ ターゲット遺伝子が含まれる疾患パスウェイ (${nIn} 件)</h4>
+          <table class="data-table"><thead><tr><th>パスウェイ名</th><th>ID</th><th></th></tr></thead><tbody>${inRows}</tbody></table>`;
+      } else {
+        inPathHtml = `<p style="font-size:12px;color:var(--text-sub);margin:8px 0;">ターゲット遺伝子は疾患上位パスウェイに直接含まれていません（間接的な関連の可能性あり）</p>`;
+      }
+      // 疾患上位遺伝子のエンリッチメントパスウェイ一覧
+      const srcBadge = s => s === "REAC" ? "🔴 Reactome" : s === "KEGG" ? "🟡 KEGG" : s === "GO:BP" ? "🔵 GO:BP" : s === "WP" ? "🟢 WP" : s;
+      const dpRows = (data.disease_pathways || []).map(p => {
+        const pval = p.p_value < 0.001 ? p.p_value.toExponential(2) : p.p_value.toFixed(4);
+        const genes = (p.genes || []).slice(0, 5).join(", ");
+        return `<tr>
+          <td style="font-size:11px;">${srcBadge(p.source)}</td>
+          <td>${esc(p.name)}</td>
+          <td style="font-size:11px;">${pval}</td>
+          <td style="font-size:11px;">${p.intersection_size || ""}</td>
+          <td style="font-size:11px;color:var(--text-sub);">${esc(genes)}${(p.genes||[]).length>5?" ...":""}</td></tr>`;
+      }).join("");
+      const dpHtml = nDp > 0
+        ? `<h4 style="margin:12px 0 6px;font-size:13px;">疾患上位遺伝子のエンリッチメントパスウェイ (上位 ${nDp} 件)</h4>
+           <table class="data-table"><thead><tr><th>DB</th><th>パスウェイ名</th><th>p値</th><th>ヒット遺伝子数</th><th>代表遺伝子</th></tr></thead><tbody>${dpRows}</tbody></table>`
+        : "";
+      return `<div class="metric-row">
+          <div class="metric"><div class="metric-val">${score}</div><div class="metric-label">パスウェイ重複スコア</div></div>
+          <div class="metric"><div class="metric-val">${nIn}</div><div class="metric-label">直接一致パスウェイ</div></div>
+          <div class="metric"><div class="metric-val">${nDp}</div><div class="metric-label">疾患エンリッチパスウェイ</div></div>
+        </div>${inPathHtml}${dpHtml}`;
+    }
     if (source === "toxicity") {
       let toxcastHtml;
       if (!data.toxcast_available) {
