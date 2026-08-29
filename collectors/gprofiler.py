@@ -22,8 +22,9 @@ def enrich_gene_list(
     """
     if not gene_symbols:
         return []
+    # KEGG は商用利用不可のため除外。REAC / GO:BP / WP のみ使用。
     if sources is None:
-        sources = ["REAC", "KEGG", "GO:BP"]
+        sources = ["REAC", "GO:BP", "WP"]
 
     try:
         payload = {
@@ -33,7 +34,6 @@ def enrich_gene_list(
             "user_threshold": significance_threshold,
             "ordered": False,
             "all_results": False,
-            "no_evidences": False,
         }
         r = requests.post(GPROFILER_API, json=payload, timeout=30)
         r.raise_for_status()
@@ -41,9 +41,21 @@ def enrich_gene_list(
     except Exception:
         return []
 
-    results_raw = (data.get("result") or [])
+    results_raw = data.get("result") or []
+    meta = data.get("meta") or {}
+    # クエリ遺伝子の順序リスト（intersections のインデックス対応）
+    queries = (meta.get("query_metadata") or {}).get("queries") or {}
+    ordered_genes = queries.get("query_1", gene_symbols)
+
     results = []
     for item in results_raw:
+        # intersections[i] が非空ならi番目のクエリ遺伝子がヒット
+        raw_ix = item.get("intersections") or []
+        hit_genes = [
+            ordered_genes[i]
+            for i, ann in enumerate(raw_ix)
+            if ann and i < len(ordered_genes)
+        ]
         results.append({
             "source":            item.get("source", ""),
             "term_id":           item.get("native", ""),
@@ -51,7 +63,7 @@ def enrich_gene_list(
             "p_value":           item.get("p_value", 1.0),
             "intersection_size": item.get("intersection_size", 0),
             "term_size":         item.get("term_size", 0),
-            "genes":             item.get("intersections", []),
+            "genes":             hit_genes,
         })
 
     results.sort(key=lambda x: x["p_value"])
