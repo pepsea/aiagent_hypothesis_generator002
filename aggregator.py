@@ -735,15 +735,26 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             tsize = pw.get("term_size", 0)
             pw_lines.append(f"- [{src}] {name} (p={pval:.3g}, {isect} of {tsize} disease genes)")
 
-        total_reac = sum(1 for p in disease_pathways if p.get("source") == "REAC")
+        total_dp = len(disease_pathways)
         pw_lines.append(f"\nTarget gene {gene} membership in disease pathways:")
         pw_lines.append(
-            f"- Direct member of {len(target_in)}/{total_reac} top disease pathways "
+            f"- Direct member of {len(target_in)}/{total_dp} enriched disease pathways "
             f"(overlap score: {overlap_score:.2f})"
         )
         if target_in:
-            names = ", ".join(p.get("name", p.get("pathway_id", "")) for p in target_in[:5])
+            names = ", ".join(
+                f"{p.get('name', p.get('pathway_id', ''))} [{p.get('source','')}]"
+                for p in target_in[:5]
+            )
             pw_lines.append(f"- Present in: {names}")
+            # 共存する疾患関連遺伝子を列挙（LLMが関係性を説明するための材料）
+            co_genes: list[str] = []
+            for pw in disease_pathways:
+                if any(p.get("name") == pw.get("name") for p in target_in):
+                    co_genes.extend(pw.get("genes") or [])
+            co_genes_uniq = list(dict.fromkeys(g for g in co_genes if g.upper() != gene.upper()))[:10]
+            if co_genes_uniq:
+                pw_lines.append(f"- Co-pathway disease genes: {', '.join(co_genes_uniq)}")
         else:
             pw_lines.append(
                 f"- Not directly present in top disease pathways "

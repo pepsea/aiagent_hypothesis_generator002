@@ -26,6 +26,7 @@ Confidence: Low / Moderate / High / Very High — one sentence reason.
 ### 1b. Functional Evidence
 Summarize what the literature (abstract summaries) says about {gene} in {disease}. Quote specific findings.
 If direct evidence is limited, also consider the "Related Literature" sections for pathway-connected genes and describe how those genes link to {gene} in {disease} context.
+Additionally, use the "Disease Pathway Analysis" section: if {gene} is a direct member of enriched disease pathways, name those pathways and the co-pathway disease genes (e.g., "APP co-occurs with PSEN1, APOE in the synaptic signaling pathway enriched in {disease}"). If {gene} is not a direct member, describe how it may connect to {disease} biology indirectly through shared pathway partners.
 Confidence: Low / Moderate / High / Very High — one sentence reason.
 
 ### 1c. Clinical Relevance
@@ -145,6 +146,7 @@ GWASヒット数・ClinVar変異数を明記。具体的な形質名・p値・�
 ### 1b. 機能的エビデンス
 文献アブストラクトが{gene}と{disease}についてどう述べているかを要約。具体的知見を引用。
 直接エビデンスが少ない場合は「Related Literature」セクション（パスウェイ隣接遺伝子の論文）も参照し、その遺伝子が{gene}を通じて{disease}にどう関連するかを記述。
+さらに「Disease Pathway Analysis」セクションを活用する：{gene}が疾患エンリッチメントパスウェイの直接メンバーであれば、そのパスウェイ名と共存する疾患関連遺伝子（Co-pathway disease genes）を挙げ、{disease}との機能的関連を論じる。直接メンバーでない場合は、共有パスウェイパートナーを通じた間接的な関与を説明する。
 エビデンス信頼度：低 / 中 / 高 / 非常に高 — 理由を一文で。
 
 ### 1c. 臨床的関連性
