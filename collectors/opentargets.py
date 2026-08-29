@@ -137,8 +137,11 @@ def get_target_disease_evidence(
                 if h.get("entity") == "disease"]
         if not hits:
             return {"error": f"Disease not found: {disease_name}"}
-        disease_id    = hits[0]["id"]
-        disease_label = hits[0]["name"]
+        # Prefer exact name match (case-insensitive) to avoid selecting subtypes
+        exact = [h for h in hits if h.get("name", "").lower() == disease_name.lower()]
+        best  = exact[0] if exact else hits[0]
+        disease_id    = best["id"]
+        disease_label = best["name"]
 
     # gene_id 解決
     ensg_id = gene_id
@@ -190,7 +193,7 @@ def get_target_disease_evidence(
         except Exception:
             pass
 
-        # ② synonyms は disease クエリから取得
+        # ② synonyms は disease クエリから取得（スコアのフォールバックにも使用）
         try:
             r = requests.post(OT_API, json={
                 "query": SCORE_QUERY,
@@ -200,7 +203,7 @@ def get_target_disease_evidence(
             disease_data = r.json().get("data", {}).get("disease") or {}
             for syn in disease_data.get("synonyms", []):
                 disease_synonyms.extend(syn.get("terms", []))
-            # ペアクエリでスコアが取れなかった場合のフォールバック
+            # ペアクエリでスコアが取れなかった場合のフォールバック（disease側から探す）
             if assoc_score is None:
                 rows = disease_data.get("associatedTargets", {}).get("rows", [])
                 for row in rows:
@@ -210,6 +213,18 @@ def get_target_disease_evidence(
                         break
         except Exception:
             pass
+
+        # ③ それでも取れない場合は target の associatedDiseases から名前で探す
+        if assoc_score is None:
+            _ad_rows = (target_data.get("associatedDiseases") or {}).get("rows", [])
+            dl = disease_label.lower()
+            for row in _ad_rows:
+                row_name = (row.get("disease") or {}).get("name", "").lower()
+                row_id   = (row.get("disease") or {}).get("id", "")
+                if row_id == disease_id or row_name == dl:
+                    assoc_score     = row.get("score")
+                    datatype_scores = {d["id"]: d["score"] for d in (row.get("datatypeScores") or [])}
+                    break
 
     # 薬剤リスト整形
     known_drugs = []
@@ -252,6 +267,7 @@ def get_target_disease_evidence(
         "ensembl_id":         ensg_id,
         "disease_id":         disease_id,
         "disease_label":      disease_label,
+        "_debug_ids":         f"ensg={ensg_id} efo={disease_id}",
         "disease_synonyms":   disease_synonyms,
         "association_score":  assoc_score,
         "datatype_scores":    datatype_scores,
