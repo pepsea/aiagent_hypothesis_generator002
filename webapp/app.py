@@ -648,9 +648,16 @@ def analyze():
                          message="疾患パスウェイエンリッチメント解析中...")
                     disease_genes_enrich = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
                     enriched = gprofiler.enrich_gene_list([g["symbol"] for g in disease_genes_enrich])
-                    disease_pathway_ids = {p["term_id"] for p in enriched if p["source"] == "REAC"}
-                    target_in = reactome.get_gene_pathway_membership(gene, disease_pathway_ids)
-                    score = len(target_in) / max(1, min(20, len(disease_pathway_ids)))
+                    # ターゲット遺伝子がエンリッチメント結果の genes リストに含まれるかを直接確認
+                    gene_upper = gene.upper()
+                    target_in = [
+                        {"name": p["name"], "pathway_id": p["term_id"],
+                         "url": f"https://reactome.org/PathwayBrowser/#/{p['term_id']}" if p["source"] == "REAC" else "",
+                         "is_disease": True, "source": p["source"]}
+                        for p in enriched
+                        if gene_upper in [g2.upper() for g2 in (p.get("genes") or [])]
+                    ]
+                    score = len(target_in) / max(1, len(enriched))
                     results["pathway_fit"] = {
                         "disease_pathways": enriched[:20],
                         "target_in_disease_pathways": target_in,
