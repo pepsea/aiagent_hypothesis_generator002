@@ -661,12 +661,13 @@ def analyze():
                     send("progress", gene=gene, step="collect",
                          message=f"パスウェイエンリッチメント警告: {e}")
 
-            # pathway_fit をデータタブに送信
-            pf = results.get("pathway_fit")
-            if pf and isinstance(pf, dict) and pf.get("disease_pathways"):
-                send("collector_done", gene=gene, source="pathway_fit", ok=True,
-                     summary=_collector_summary("pathway_fit", pf, None),
-                     data=_collector_data("pathway_fit", pf))
+            # pathway_fit をデータタブに送信（結果が空でも必ず送信）
+            pf = results.get("pathway_fit") or {}
+            if ot_disease_id:  # disease_id が取れた場合は常に送信
+                send("collector_done", gene=gene, source="pathway_fit",
+                     ok=bool(pf.get("disease_pathways")),
+                     summary=_collector_summary("pathway_fit", pf, None) if pf else "エンリッチメント結果なし",
+                     data=_collector_data("pathway_fit", pf) if pf else None)
 
             evidence = {"gene": gene, "disease": disease_name,
                         "evidence": results, "collection_errors": errors}
