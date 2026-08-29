@@ -954,7 +954,7 @@ const SRC_LABEL = {
   gwas:"GWAS", clinvar:"ClinVar", chembl:"ChEMBL",
   gnomad:"gnomAD", gtex:"GTEx", hpa:"HPA", dgidb:"DGIdb",
   clinicaltrials:"臨床試験", alphafold:"AlphaFold", reactome:"Reactome",
-  toxicity:"毒性",
+  toxicity:"毒性", pathway_fit:"疾患パスウェイ",
 };
 
 function initCollectorGrid(gene, sources) {
@@ -980,7 +980,16 @@ const collectorData = {};
 
 function updateCollectorChip(gene, source, ok, summary, data) {
   const id = cardId(gene);
-  const chip = document.getElementById(`${id}-chip-${source}`);
+  let chip = document.getElementById(`${id}-chip-${source}`);
+  if (!chip) {
+    // 初期リストにないソース（pathway_fit など後から追加されるもの）は動的に生成
+    const grid = document.getElementById(id + "-collector-grid");
+    if (grid) {
+      chip = document.createElement("div");
+      chip.id = `${id}-chip-${source}`;
+      grid.appendChild(chip);
+    }
+  }
   if (chip) {
     chip.className = `collector-chip ${ok ? "ok" : "err"}`;
     chip.innerHTML = `
