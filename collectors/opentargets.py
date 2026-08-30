@@ -5,7 +5,7 @@
   knownDrugs → drugAndClinicalCandidates
   maximumClinicalTrialPhase → maximumClinicalStage
 
-enableIndirect: true でウェブサイト表示と一致させている。
+enableIndirect: false でウェブサイト表示と一致させている。
 オントロジー階層を辿った間接エビデンスを含むため、
 platform.opentargets.org の表示スコアと同じ値が得られる。
 """
@@ -20,7 +20,7 @@ query($ensgId: String!) {
     approvedName
     biotype
     functionDescriptions
-    associatedDiseases(enableIndirect: true, page: {index: 0, size: 20}) {
+    associatedDiseases(enableIndirect: false, page: {index: 0, size: 20}) {
       rows {
         disease { id name }
         score
@@ -44,7 +44,7 @@ query($efoId: String!) {
     id
     name
     synonyms { terms scope }
-    associatedTargets(enableIndirect: true, page: {index: 0, size: 500}) {
+    associatedTargets(enableIndirect: false, page: {index: 0, size: 500}) {
       rows {
         target { id approvedSymbol }
         score
@@ -59,7 +59,7 @@ query($efoId: String!) {
 DISEASE_TOP_GENES_QUERY = """
 query($efoId: String!, $size: Int!) {
   disease(efoId: $efoId) {
-    associatedTargets(enableIndirect: true, page: {index: 0, size: $size}) {
+    associatedTargets(enableIndirect: false, page: {index: 0, size: $size}) {
       rows {
         target { id approvedSymbol }
         score
@@ -94,7 +94,7 @@ query($ensgId: String!, $efoId: String!) {
   target(ensemblId: $ensgId) {
     approvedSymbol
     associatedDiseases(
-      enableIndirect: true
+      enableIndirect: false
       filter: { ids: [$efoId] }
       page: { index: 0, size: 1 }
     ) {
