@@ -100,14 +100,17 @@ Best modality (small molecule / antibody / PROTAC / ASO / gene therapy) and why:
 
 ## 8. Recommended Experiments
 
-Propose 3–5 experiments in priority order. For each, state clearly:
-1. **Purpose** — what question this experiment answers (one sentence).
-2. **Experimental system** — the most appropriate model or sample type (e.g., disease-relevant cell line, patient-derived primary cells, ex vivo tissue, organoid). Prefer in vitro and ex vivo over animal models. Name a specific system if mentioned in the evidence.
-3. **Key readout** — the main measurable endpoint.
+First, identify the 2–3 most critical gaps that currently block clinical advancement of {gene} as a target in {disease}. For each gap, state what is unknown and why it is a blocker (one sentence each).
 
-Keep each experiment to 3–4 sentences. Do not write full protocols.
+Then propose 3–5 experiments in priority order to address those gaps. At least 2 experiments must directly address the clinical advancement blockers identified above. For each experiment state:
+1. **Gap addressed** — which clinical blocker this experiment resolves (one sentence).
+2. **Purpose** — the specific scientific question being answered (one sentence).
+3. **Experimental system** — the most appropriate model or sample type (e.g., disease-relevant cell line, patient-derived primary cells, ex vivo tissue, organoid). Prefer in vitro and ex vivo over animal models. Name a specific system if mentioned in the evidence.
+4. **Key readout** — the main measurable endpoint and how a positive result would de-risk the clinical hypothesis.
 
-Prioritise: (1) target/variant validation, (2) pharmacological proof-of-concept, (3) mechanism confirmation, (4) translational/biomarker.
+Keep each experiment to 4–5 sentences. Do not write full protocols.
+
+Prioritise: (1) target/variant validation in disease-relevant tissue, (2) pharmacological proof-of-concept with a tool compound, (3) mechanism/biomarker confirmation, (4) translational evidence from patient samples.
 
 ---
 
@@ -219,14 +222,17 @@ GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内�
 
 ## 8. 推奨次期実験
 
-優先順位の高い順に3〜5件の実験を提案すること。各実験について以下を簡潔に記述する：
-1. **目的** — この実験が何を明らかにするか（1文）。
-2. **試験系** — 最適なモデルまたはサンプル種別（例:疾患関連細胞株、患者由来初代細胞、ex vivo組織、オルガノイド）。動物モデルよりin vitro・ex vivoを優先する。エビデンスに具体的な系が記載されていればそれを使う。
-3. **主要エンドポイント** — 主な測定項目。
+まず、{gene}を{disease}の治療標的として臨床開発を進める上で現在不足している情報のうち、最も重大なブロッカーを2〜3項目特定する。各ブロッカーについて「何が不明で、なぜ臨床化の障壁になるか」を1文で明記すること。
 
-各実験は3〜4文程度。詳細なプロトコルは不要。
+次に、それらのブロッカーを解消するための実験を優先順位の高い順に3〜5件提案する。うち最低2件は上記の臨床化ブロッカーに直接対応するものとする。各実験について以下を記述する：
+1. **解消するギャップ** — この実験がどのブロッカーを解決するか（1文）。
+2. **目的** — 答えるべき具体的な科学的問い（1文）。
+3. **試験系** — 最適なモデルまたはサンプル種別（例：疾患関連細胞株、患者由来初代細胞、ex vivo組織、オルガノイド）。動物モデルよりin vitro・ex vivoを優先する。エビデンスに具体的な系が記載されていればそれを使う。
+4. **主要エンドポイントと判定基準** — 主な測定項目と、陽性結果が臨床仮説をどのようにde-riskするか。
 
-優先順位：(1) 標的/変異の検証、(2) 薬理学的概念実証、(3) メカニズム確認、(4) トランスレーショナル/バイオマーカー。
+各実験は4〜5文程度。詳細なプロトコルは不要。
+
+優先順位：(1) 疾患関連組織での標的/変異の検証、(2) ツール化合物を用いた薬理学的概念実証、(3) メカニズム/バイオマーカーの確認、(4) 患者サンプルを用いたトランスレーショナルエビデンス。
 
 ---
 
