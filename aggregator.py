@@ -762,6 +762,28 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             )
         sections.append("\n".join(pw_lines) + "\n")
 
+    # ── Network × Disease Gene Overlap ──────────────────────────────────────
+    net_overlap = ev.get("network_disease_overlap") or {}
+    if net_overlap and net_overlap.get("overlap_count", 0) > 0:
+        ws  = net_overlap.get("weighted_score", 0.0)
+        sr  = net_overlap.get("simple_ratio", 0.0)
+        ov  = net_overlap.get("overlap_count", 0)
+        dg  = net_overlap.get("disease_gene_count", 0)
+        pp  = net_overlap.get("ppi_partner_count", 0)
+        top = net_overlap.get("overlapping_genes", [])[:8]
+        top_str = ", ".join(
+            f"{g['symbol']} (OT={g['score']:.2f})" for g in top if g.get("symbol")
+        )
+        sections.append(
+            f"## Network–Disease Gene Overlap\n"
+            f"PPI partners of {gene} that are also top {disease} genes in OpenTargets:\n"
+            f"- Weighted overlap score: {ws:.3f} (sum of OT scores of overlapping genes / total)\n"
+            f"- Simple overlap: {ov}/{dg} disease genes ({sr*100:.1f}%) found in {gene} PPI network ({pp} partners)\n"
+            f"- Top overlapping genes: {top_str}\n"
+            f"Interpretation: a higher weighted score indicates that {gene} is more central "
+            f"to the {disease} disease gene network via direct protein interactions.\n"
+        )
+
     # ── Related gene papers (pathway-connected partners) ────────────────────
     related_gene_papers = ev.get("related_gene_papers") or {}
     for partner_gene, papers in related_gene_papers.items():

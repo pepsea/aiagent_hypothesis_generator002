@@ -163,6 +163,7 @@ _SRC_LABEL = {
     "hpa": "HPA", "dgidb": "DGIdb", "clinicaltrials": "ClinicalTrials",
     "alphafold": "AlphaFold", "reactome": "Reactome", "toxicity": "Toxicity",
     "pathway_fit": "疾患パスウェイ",
+    "network_overlap": "NW重複",
 }
 
 def _collector_summary(key: str, result, err: str | None) -> str:
@@ -608,6 +609,7 @@ def analyze():
                     send("progress", gene=gene, step="collect",
                          message="パスウェイ隣接遺伝子を解析中...")
                     disease_genes = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
+                    results["_disease_genes_for_overlap"] = disease_genes  # ネットワーク重複計算用
                     pathway_connections = reactome.find_pathway_connections(
                         gene, disease_genes, max_partners=5)
                     results["pathway_connections"] = pathway_connections
@@ -711,6 +713,34 @@ def analyze():
                     ppi_graph, gene.upper(), exclude_hubs=False, exclude_non_gene=True)
                 ppi_partners = net.rank_partners(
                     ppi_graph, gene.upper(), hub_threshold=hub_threshold)[:max_nodes]
+
+                # ── ネットワーク×疾患遺伝子 重複スコア ───────────────────────────
+                # disease_genes は pathway_connections ブロックで取得済み
+                _dg = results.get("_disease_genes_for_overlap") or []
+                if _dg and ppi_partners:
+                    _ppi_set = {p.upper() for p in ppi_partners}
+                    _total_ot_score = sum(g.get("score", 0) for g in _dg)
+                    _overlap = [
+                        g for g in _dg
+                        if g.get("symbol", "").upper() in _ppi_set
+                    ]
+                    _weighted = sum(g.get("score", 0) for g in _overlap)
+                    _weighted_score = round(_weighted / _total_ot_score, 3) if _total_ot_score > 0 else 0.0
+                    _simple_ratio  = round(len(_overlap) / max(1, len(_dg)), 3)
+                    net_overlap = {
+                        "weighted_score":    _weighted_score,
+                        "simple_ratio":      _simple_ratio,
+                        "overlap_count":     len(_overlap),
+                        "disease_gene_count": len(_dg),
+                        "ppi_partner_count": len(ppi_partners),
+                        "overlapping_genes": sorted(_overlap, key=lambda g: g.get("score", 0), reverse=True),
+                    }
+                    results["network_disease_overlap"] = net_overlap
+                    send("collector_done", gene=gene, source="network_overlap", ok=True,
+                         summary=(f"重み付きスコア {_weighted_score:.3f} / "
+                                  f"重複 {len(_overlap)}/{len(_dg)} 遺伝子"),
+                         data=net_overlap)
+
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
                 try:

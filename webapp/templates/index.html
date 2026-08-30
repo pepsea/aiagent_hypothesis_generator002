@@ -954,7 +954,7 @@ const SRC_LABEL = {
   gwas:"GWAS", clinvar:"ClinVar", chembl:"ChEMBL",
   gnomad:"gnomAD", gtex:"GTEx", hpa:"HPA", dgidb:"DGIdb",
   clinicaltrials:"臨床試験", alphafold:"AlphaFold", reactome:"Reactome",
-  toxicity:"毒性", pathway_fit:"疾患パスウェイ",
+  toxicity:"毒性", pathway_fit:"疾患パスウェイ", network_overlap:"NW重複",
 };
 
 function initCollectorGrid(gene, sources) {
@@ -1354,6 +1354,35 @@ function renderDataDetail(source, data, gene) {
           <div class="metric"><div class="metric-val">${nIn}</div><div class="metric-label">直接一致パスウェイ</div></div>
           <div class="metric"><div class="metric-val">${nDp}</div><div class="metric-label">疾患エンリッチパスウェイ</div></div>
         </div>${inPathHtml}${dpHtml}`;
+    }
+    if (source === "network_overlap") {
+      const ws   = (data.weighted_score ?? 0).toFixed(3);
+      const sr   = ((data.simple_ratio ?? 0) * 100).toFixed(1);
+      const ov   = data.overlap_count ?? 0;
+      const dg   = data.disease_gene_count ?? 0;
+      const pp   = data.ppi_partner_count ?? 0;
+      const genes = (data.overlapping_genes || []);
+      const rows = genes.map(g => {
+        const score = (g.score ?? 0).toFixed(3);
+        const barW  = Math.round((g.score ?? 0) * 100);
+        return `<tr>
+          <td style="font-weight:600;">${esc(g.symbol||"")}</td>
+          <td><div style="background:#dbeafe;width:${barW}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${score}</td>
+        </tr>`;
+      }).join("");
+      const tableHtml = rows
+        ? `<table class="data-table"><thead><tr><th>重複遺伝子</th><th>OT スコア</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p style="font-size:12px;color:var(--text-sub);">PPI パートナーと疾患遺伝子の重複なし</p>`;
+      return `<div class="metric-row">
+          <div class="metric"><div class="metric-val" style="color:var(--primary);">${ws}</div><div class="metric-label">重み付きスコア</div></div>
+          <div class="metric"><div class="metric-val">${sr}%</div><div class="metric-label">単純重複率</div></div>
+          <div class="metric"><div class="metric-val">${ov} / ${dg}</div><div class="metric-label">重複 / 疾患遺伝子数</div></div>
+          <div class="metric"><div class="metric-val">${pp}</div><div class="metric-label">PPIパートナー数</div></div>
+        </div>
+        <p style="font-size:11px;color:var(--text-sub);margin:4px 0 10px;">
+          重み付きスコア = 重複遺伝子の OT スコア合計 / 全疾患遺伝子の OT スコア合計
+        </p>
+        ${tableHtml}`;
     }
     if (source === "toxicity") {
       let toxcastHtml;
