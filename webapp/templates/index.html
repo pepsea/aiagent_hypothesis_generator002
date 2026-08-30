@@ -1361,6 +1361,18 @@ function renderDataDetail(source, data, gene) {
       const ov   = data.overlap_count ?? 0;
       const dg   = data.disease_gene_count ?? 0;
       const pp   = data.ppi_partner_count ?? 0;
+      // ターゲット自身の行
+      const selfHtml = data.target_self
+        ? (() => {
+            const ss = (data.target_self_score ?? 0).toFixed(3);
+            const bw = Math.round((data.target_self_score ?? 0) * 100);
+            return `<h4 style="margin:12px 0 4px;font-size:13px;">ターゲット自身の疾患遺伝子スコア</h4>
+              <table class="data-table"><tbody><tr>
+                <td style="font-weight:600;color:var(--primary);">★ ${esc(data.target_self)}</td>
+                <td><div style="background:#bfdbfe;width:${bw}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${ss}</td>
+              </tr></tbody></table>`;
+          })()
+        : `<p style="font-size:12px;color:var(--text-sub);margin:8px 0;">ターゲット自身は疾患上位遺伝子リストに含まれていません</p>`;
       const genes = (data.overlapping_genes || []);
       const rows = genes.map(g => {
         const score = (g.score ?? 0).toFixed(3);
@@ -1371,7 +1383,8 @@ function renderDataDetail(source, data, gene) {
         </tr>`;
       }).join("");
       const tableHtml = rows
-        ? `<table class="data-table"><thead><tr><th>重複遺伝子</th><th>OT スコア</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<h4 style="margin:12px 0 4px;font-size:13px;">PPIパートナー × 疾患遺伝子 重複一覧</h4>
+           <table class="data-table"><thead><tr><th>重複遺伝子</th><th>OT スコア</th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p style="font-size:12px;color:var(--text-sub);">PPI パートナーと疾患遺伝子の重複なし</p>`;
       return `<div class="metric-row">
           <div class="metric"><div class="metric-val" style="color:var(--primary);">${ws}</div><div class="metric-label">重み付きスコア</div></div>
@@ -1380,9 +1393,9 @@ function renderDataDetail(source, data, gene) {
           <div class="metric"><div class="metric-val">${pp}</div><div class="metric-label">PPIパートナー数</div></div>
         </div>
         <p style="font-size:11px;color:var(--text-sub);margin:4px 0 10px;">
-          重み付きスコア = 重複遺伝子の OT スコア合計 / 全疾患遺伝子の OT スコア合計
+          重み付きスコア = (ターゲット自身 + PPIパートナー重複) の OT スコア合計 / 全疾患遺伝子スコア合計
         </p>
-        ${tableHtml}`;
+        ${selfHtml}${tableHtml}`;
     }
     if (source === "toxicity") {
       let toxcastHtml;
@@ -1555,7 +1568,10 @@ function renderSnapshot(snap) {
   geneState[snap.gene] = { tokens: [], done: true };
   createGeneCard(snap.gene);
 
-  const sources = Object.keys(snap.collectors || {}).filter(s => s !== "toxicity" && s !== "clinicaltrials");
+  // clinvar / toxicity / clinicaltrials / pathway_fit / network_overlap は
+  // initCollectorGrid の concat か updateCollectorChip の動的生成で追加されるため除外
+  const _LATE_SOURCES = new Set(["clinvar","toxicity","clinicaltrials","pathway_fit","network_overlap"]);
+  const sources = Object.keys(snap.collectors || {}).filter(s => !_LATE_SOURCES.has(s));
   initCollectorGrid(snap.gene, sources);
   for (const [src, c] of Object.entries(snap.collectors || {})) {
     updateCollectorChip(snap.gene, src, c.ok, c.summary, c.data);

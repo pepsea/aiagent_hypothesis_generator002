@@ -246,6 +246,13 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         n_dp  = len(result.get("disease_pathways", []))
         n_in  = len(result.get("target_in_disease_pathways", []))
         return f"スコア {score:.2f} / 疾患パスウェイ {n_dp} 件 / 遺伝子一致 {n_in} 件"
+    if key == "network_overlap" and isinstance(result, dict):
+        ws  = result.get("weighted_score", 0)
+        ov  = result.get("overlap_count", 0)
+        dg  = result.get("disease_gene_count", 0)
+        tself = result.get("target_self_score")
+        self_str = f" / 自身OT {tself:.3f}" if tself is not None else ""
+        return f"重み付き {ws:.3f} / 重複 {ov}/{dg} 遺伝子{self_str}"
     if key == "toxicity":
         if isinstance(result, dict):
             tc = result.get("toxcast") or {}
@@ -417,6 +424,17 @@ def _collector_data(key: str, result) -> dict | None:
                      "url": p.get("url", ""), "is_disease": p.get("is_disease", False)}
                     for p in (result.get("target_in_disease_pathways") or [])
                 ],
+            }
+        if key == "network_overlap" and isinstance(result, dict):
+            return {
+                "weighted_score":     result.get("weighted_score", 0),
+                "simple_ratio":       result.get("simple_ratio", 0),
+                "overlap_count":      result.get("overlap_count", 0),
+                "disease_gene_count": result.get("disease_gene_count", 0),
+                "ppi_partner_count":  result.get("ppi_partner_count", 0),
+                "target_self":        result.get("target_self"),
+                "target_self_score":  result.get("target_self_score"),
+                "overlapping_genes":  result.get("overlapping_genes", []),
             }
         if key == "toxicity" and isinstance(result, dict):
             tc = result.get("toxcast") or {}
@@ -717,29 +735,38 @@ def analyze():
                 # ── ネットワーク×疾患遺伝子 重複スコア ───────────────────────────
                 # disease_genes は pathway_connections ブロックで取得済み
                 _dg = results.get("_disease_genes_for_overlap") or []
-                if _dg and ppi_partners:
+                if _dg:
                     _ppi_set = {p.upper() for p in ppi_partners}
                     _total_ot_score = sum(g.get("score", 0) for g in _dg)
+                    # ターゲット自身が疾患遺伝子リストにあるか確認
+                    _self_entry = next((g for g in _dg if g.get("symbol","").upper() == gene.upper()), None)
+                    _self_score = _self_entry.get("score") if _self_entry else None
+                    # PPI パートナーとの重複（ターゲット自身は別扱い）
                     _overlap = [
                         g for g in _dg
                         if g.get("symbol", "").upper() in _ppi_set
+                           and g.get("symbol", "").upper() != gene.upper()
                     ]
                     _weighted = sum(g.get("score", 0) for g in _overlap)
+                    # ターゲット自身のスコアも加算（直接的な疾患関連の証拠）
+                    if _self_score is not None:
+                        _weighted += _self_score
                     _weighted_score = round(_weighted / _total_ot_score, 3) if _total_ot_score > 0 else 0.0
-                    _simple_ratio  = round(len(_overlap) / max(1, len(_dg)), 3)
+                    _simple_ratio  = round((len(_overlap) + (1 if _self_entry else 0)) / max(1, len(_dg)), 3)
                     net_overlap = {
-                        "weighted_score":    _weighted_score,
-                        "simple_ratio":      _simple_ratio,
-                        "overlap_count":     len(_overlap),
+                        "weighted_score":     _weighted_score,
+                        "simple_ratio":       _simple_ratio,
+                        "overlap_count":      len(_overlap),
                         "disease_gene_count": len(_dg),
-                        "ppi_partner_count": len(ppi_partners),
-                        "overlapping_genes": sorted(_overlap, key=lambda g: g.get("score", 0), reverse=True),
+                        "ppi_partner_count":  len(ppi_partners),
+                        "target_self":        gene if _self_entry else None,
+                        "target_self_score":  _self_score,
+                        "overlapping_genes":  sorted(_overlap, key=lambda g: g.get("score", 0), reverse=True),
                     }
                     results["network_disease_overlap"] = net_overlap
                     send("collector_done", gene=gene, source="network_overlap", ok=True,
-                         summary=(f"重み付きスコア {_weighted_score:.3f} / "
-                                  f"重複 {len(_overlap)}/{len(_dg)} 遺伝子"),
-                         data=net_overlap)
+                         summary=_collector_summary("network_overlap", net_overlap, None),
+                         data=_collector_data("network_overlap", net_overlap))
 
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
@@ -920,6 +947,15 @@ def analyze():
                     "summary": _collector_summary(src, result, err),
                     "data": _collector_data(src, result),
                 }
+            # pathway_fit / network_overlap をスナップショットに追加
+            for src in ["pathway_fit", "network_overlap"]:
+                result = results.get(src)
+                if result:
+                    collectors_snapshot[src] = {
+                        "ok": True,
+                        "summary": _collector_summary(src, result, None),
+                        "data": _collector_data(src, result),
+                    }
             enr_results_full = (enrichment or {}).get("results", [])[:100]
             excluded_hubs_full = (enrichment or {}).get("excluded_hubs", [])
             snapshot_html = snap_mod.build_snapshot_html(
@@ -944,7 +980,11 @@ def analyze():
                  partner_functions=partner_functions,
                  enrichment_results=enr_results_full,
                  excluded_hubs=excluded_hubs_full,
-                 snapshot_path=str(snapshot_path))
+                 snapshot_path=str(snapshot_path),
+                 pathway_fit_data=_collector_data("pathway_fit", results.get("pathway_fit")),
+                 pathway_fit_summary=_collector_summary("pathway_fit", results.get("pathway_fit") or {}, None),
+                 network_overlap_data=_collector_data("network_overlap", results.get("network_disease_overlap")),
+                 network_overlap_summary=_collector_summary("network_overlap", results.get("network_disease_overlap") or {}, None))
 
         if not cancel_ev.is_set():
             send("batch_done", total=len(genes))
