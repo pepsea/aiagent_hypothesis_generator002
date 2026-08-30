@@ -939,7 +939,7 @@ def analyze():
             # 取得データ（全ソース）を、Webアプリと同じ見た目でオフライン閲覧
             # できる単一 HTML として書き出す（サーバー不要・ブラウザで直接開ける）。
             collectors_snapshot = {}
-            for src in list(COLLECTORS.keys()) + ["toxicity", "clinicaltrials"]:
+            for src in list(COLLECTORS.keys()) + ["clinvar", "toxicity", "clinicaltrials"]:
                 result = results.get(src)
                 err = errors.get(src)
                 collectors_snapshot[src] = {
@@ -948,8 +948,9 @@ def analyze():
                     "data": _collector_data(src, result),
                 }
             # pathway_fit / network_overlap をスナップショットに追加
-            for src in ["pathway_fit", "network_overlap"]:
-                result = results.get(src)
+            # network_overlap の結果は results["network_disease_overlap"] に格納されている
+            for src, res_key in [("pathway_fit", "pathway_fit"), ("network_overlap", "network_disease_overlap")]:
+                result = results.get(res_key)
                 if result:
                     collectors_snapshot[src] = {
                         "ok": True,
