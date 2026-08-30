@@ -1065,7 +1065,15 @@ function renderDataDetail(source, data, gene) {
       const otLinks = [];
       if (data.ensembl_id) otLinks.push(`<a href="https://platform.opentargets.org/target/${esc(data.ensembl_id)}" target="_blank">🔗 Target を OpenTargets で見る</a>`);
       if (data.disease_id) otLinks.push(`<a href="https://platform.opentargets.org/disease/${esc(data.disease_id)}" target="_blank">🔗 Disease を OpenTargets で見る</a>`);
-      const otLinkHtml = otLinks.length ? `<div style="margin-bottom:10px;font-size:12px;">${otLinks.join(" ｜ ")}</div>` : "";
+      // disease_id と disease_label を表示（ID が間違っているとスコアが 0 になるため診断用に常時表示）
+      const idInfoHtml = `<div style="margin-bottom:8px;font-size:11px;color:var(--text-sub);background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 8px;">
+        <span>使用 Disease ID: <code>${esc(data.disease_id||"—")}</code>${data.disease_label ? ` (${esc(data.disease_label)})` : ""}</span><br>
+        <span>使用 Gene ID: <code>${esc(data.ensembl_id||"—")}</code></span>
+        ${data.association_score === null || data.association_score === 0
+          ? ' <span style="color:var(--warn);font-weight:600;">⚠ スコア0 → Disease IDが正しいかリンクで確認してください</span>'
+          : ''}
+      </div>`;
+      const otLinkHtml = otLinks.length ? `<div style="margin-bottom:6px;font-size:12px;">${otLinks.join(" ｜ ")}</div>` : "";
       const dt = data.datatype_scores || {};
       const scoreRows = Object.entries(dt).map(([k,v]) =>
         `<tr><td>${esc(k)}</td><td><div style="background:#dbeafe;width:${Math.round(v*100)}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${(+v).toFixed(3)}</td></tr>`
@@ -1093,7 +1101,7 @@ function renderDataDetail(source, data, gene) {
         </tr>`;
       }).join("");
       const disHead = DT_COLS.map(c => `<th style="text-align:center;font-size:10px;">${DT_LABEL[c]}</th>`).join("");
-      return `${otLinkHtml}<div class="metric-row">
+      return `${idInfoHtml}${otLinkHtml}<div class="metric-row">
         <div class="metric"><div class="metric-val">${(+(data.association_score||0)).toFixed(3)}</div><div class="metric-label">Total Score</div></div>
         <div class="metric"><div class="metric-val">${(+(data.genetic_score||0)).toFixed(3)}</div><div class="metric-label">Genetic Score</div></div>
       </div>

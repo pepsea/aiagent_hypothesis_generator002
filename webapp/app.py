@@ -273,6 +273,7 @@ def _collector_data(key: str, result) -> dict | None:
             return {
                 "ensembl_id": result.get("ensembl_id", ""),
                 "disease_id": result.get("disease_id", ""),
+                "disease_label": result.get("disease_label", ""),
                 "association_score": result.get("association_score"),
                 "datatype_scores": dt,
                 # genetic_literature を代用しない（別データタイプの誤表示防止、上の理由と同じ）
