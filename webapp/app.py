@@ -668,7 +668,13 @@ def analyze():
                     send("progress", gene=gene, step="collect",
                          message="疾患パスウェイエンリッチメント解析中...")
                     disease_genes_enrich = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
-                    enriched = gprofiler.enrich_gene_list([g["symbol"] for g in disease_genes_enrich])
+                    # ターゲット遺伝子自身がリストになければ先頭に追加する
+                    # （g:Profiler の genes フィールドは入力リストとの交差なので、
+                    #  入力に含まれないとターゲットが target_in に現れない）
+                    _enrich_syms = [g["symbol"] for g in disease_genes_enrich]
+                    if gene.upper() not in [s.upper() for s in _enrich_syms]:
+                        _enrich_syms = [gene] + _enrich_syms
+                    enriched = gprofiler.enrich_gene_list(_enrich_syms)
                     # ターゲット遺伝子がエンリッチメント結果の genes リストに含まれるかを直接確認
                     gene_upper = gene.upper()
                     target_in = [

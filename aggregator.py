@@ -240,7 +240,10 @@ def collect_all(
     if ot_disease_id:
         try:
             disease_genes_for_enrich = opentargets.get_disease_top_genes(ot_disease_id, top_n=20)
-            enriched = gprofiler.enrich_gene_list([g["symbol"] for g in disease_genes_for_enrich])
+            _enrich_syms = [g["symbol"] for g in disease_genes_for_enrich]
+            if gene.upper() not in [s.upper() for s in _enrich_syms]:
+                _enrich_syms = [gene] + _enrich_syms
+            enriched = gprofiler.enrich_gene_list(_enrich_syms)
             disease_pathway_ids = {p["term_id"] for p in enriched if p["source"] == "REAC"}
             target_in = reactome.get_gene_pathway_membership(gene, disease_pathway_ids)
             score = len(target_in) / max(1, min(20, len(disease_pathway_ids)))
