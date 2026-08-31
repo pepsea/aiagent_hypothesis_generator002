@@ -1,15 +1,14 @@
 """Europe PMC + PubMed E-utilities combined literature collector.
 
-Europe PMC (EMBL-EBI, free API):
-  - PubMed / PMC / 学術リポジトリをまとめて全文検索
+Europe PMC (EMBL-EBI, free API, Apache 2.0 compatible):
+  - PubMed / PMC / 学術リポジトリをまとめて検索
   - abstractText を直接返すため efetch 不要
-  - フィールド検索: GENE_PROTEIN_NAME / TITLE / ABSTRACT / AUTH_ORCID など
+  - シンプルなフリーテキストクエリで確実にヒット
 
 PubMed E-utilities (NCBI, public domain):
-  - MeSH ターム × 遺伝子シノニムの多段 tier クエリ
-  - Europe PMC で取れなかった論文を補完
+  - MeSH × 遺伝子シノニムの多段 tier クエリで Europe PMC を補完
 
-スコアリング（ Europe PMC + PubMed 共通）:
+スコアリング:
   4: 公式シンボル × 疾患名 → タイトル両方
   3: 公式シンボル × 疾患名 → タイトル+アブスト
   2: シノニム × 疾患名 → タイトル
@@ -23,44 +22,33 @@ import re
 import requests
 from typing import Optional
 
-EPMC_API   = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+EPMC_API    = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-CLINICAL_PUBTYPES = {
+_CLINICAL_PUBTYPES = {
     "clinical trial", "clinical trial, phase i", "clinical trial, phase ii",
     "clinical trial, phase iii", "clinical trial, phase iv",
     "controlled clinical trial", "randomized controlled trial",
     "pragmatic clinical trial", "adaptive clinical trial",
     "observational study", "multicenter study", "case reports",
-    "journal article",   # EPMC は "Journal Article" が基本 pubtype
 }
-
 _CLINICAL_KEYWORDS = {
     "clinical trial", "randomized", "randomised", "placebo", "patients",
     "cohort", "case-control", "observational", "phase i", "phase ii",
-    "phase iii", "phase iv",
+    "phase iii", "phase iv", "double-blind",
 }
 
 
-def _is_clinical(pub_types: list[str]) -> bool:
+def _is_clinical(pub_types: list[str], abstract: str = "") -> bool:
     lower = {(pt or "").lower() for pt in (pub_types or [])}
-    return bool(lower & {
-        "clinical trial", "clinical trial, phase i", "clinical trial, phase ii",
-        "clinical trial, phase iii", "clinical trial, phase iv",
-        "controlled clinical trial", "randomized controlled trial",
-        "pragmatic clinical trial", "adaptive clinical trial",
-        "observational study", "multicenter study", "case reports",
-    })
-
-
-def _is_clinical_by_abstract(abstract: str) -> bool:
-    """アブストラクトのキーワードから臨床研究かを補完判定。"""
+    if lower & _CLINICAL_PUBTYPES:
+        return True
     al = (abstract or "").lower()
     return any(kw in al for kw in _CLINICAL_KEYWORDS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# シノニム取得（pubmed.py から流用）
+# シノニム取得
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_gene_synonyms(gene_symbol: str) -> list[str]:
@@ -100,7 +88,7 @@ def _get_gene_synonyms(gene_symbol: str) -> list[str]:
 
 
 def _get_mesh_heading(disease_name: str) -> str:
-    """疾患名 → MeSH 見出し語（PubMed クエリ用）。失敗時は disease_name を返す。"""
+    """疾患名 → MeSH 見出し語。失敗時は disease_name をそのまま返す。"""
     try:
         r = requests.get(f"{EUTILS_BASE}/esearch.fcgi", params={
             "db": "mesh", "term": disease_name, "retmax": 1, "retmode": "json",
@@ -134,12 +122,11 @@ def _epmc_search(query: str, page_size: int = 100, max_pages: int = 3) -> list[d
     for _ in range(max_pages):
         try:
             params = {
-                "query":       query,
-                "resultType":  "core",
-                "format":      "json",
-                "pageSize":    page_size,
-                "cursorMark":  cursor_mark,
-                "sort":        "RELEVANCE",
+                "query":      query,
+                "resultType": "core",
+                "format":     "json",
+                "pageSize":   page_size,
+                "cursorMark": cursor_mark,
             }
             r = requests.get(EPMC_API, params=params, timeout=25)
             r.raise_for_status()
@@ -148,43 +135,50 @@ def _epmc_search(query: str, page_size: int = 100, max_pages: int = 3) -> list[d
             if not results:
                 break
             articles.extend(results)
-            # 次ページ
             next_cursor = data.get("nextCursorMark")
             if not next_cursor or next_cursor == cursor_mark:
                 break
             cursor_mark = next_cursor
+            if len(articles) >= page_size * max_pages:
+                break
         except Exception as e:
-            print(f"    [EuropePMC] search error: {e}")
+            print(f"    [EuropePMC] search error (query={repr(query)[:60]}): {e}")
             break
-        time.sleep(0.2)
+        time.sleep(0.25)
     return articles
 
 
 def _epmc_to_paper(item: dict) -> dict:
-    """Europe PMC の結果アイテム → 統一フォーマットの paper dict。"""
-    pmid = str(item.get("pmid") or item.get("id") or "").strip()
+    """Europe PMC アイテム → 統一フォーマット。"""
+    # PMID が無い場合は PMC ID を代替として保持（スコアリングに使う）
+    pmid = str(item.get("pmid") or "").strip()
+    pmcid = str(item.get("pmcid") or item.get("id") or "").strip()
+    # PMID URL: PMID があれば PubMed、なければ Europe PMC リンク
+    effective_pmid = pmid or pmcid
+
     pub_types_raw = (item.get("pubTypeList") or {}).get("pubType") or []
     if isinstance(pub_types_raw, str):
         pub_types_raw = [pub_types_raw]
+
     authors_raw = (item.get("authorList") or {}).get("author") or []
     if isinstance(authors_raw, list):
         author_names = [
-            a.get("fullName") or f"{a.get('lastName', '')} {a.get('initials', '')}".strip()
+            a.get("fullName") or
+            f"{a.get('lastName', '')} {a.get('initials', '')}".strip()
             for a in authors_raw[:3]
         ]
     else:
         author_names = []
 
-    abstract = (item.get("abstractText") or "").strip()
-    abstract = re.sub(r"<[^>]+>", " ", abstract).strip()  # HTML タグ除去
-
-    is_clin = _is_clinical(pub_types_raw) or _is_clinical_by_abstract(abstract)
+    abstract = re.sub(r"<[^>]+>", " ", item.get("abstractText") or "").strip()
+    is_clin = _is_clinical(pub_types_raw, abstract)
 
     return {
-        "pmid":            pmid,
-        "title":           item.get("title", "").rstrip(".").strip(),
-        "journal":         item.get("journalTitle", "") or item.get("journal", {}).get("title", ""),
-        "year":            str(item.get("pubYear") or item.get("firstPublicationDate", ""))[:4],
+        "pmid":            effective_pmid,
+        "title":           (item.get("title") or "").rstrip(".").strip(),
+        "journal":         item.get("journalTitle") or "",
+        "year":            str(item.get("pubYear") or
+                              (item.get("firstPublicationDate") or "")[:4])[:4],
         "authors":         author_names,
         "abstract":        abstract,
         "relevance_score": 0,
@@ -196,7 +190,7 @@ def _epmc_to_paper(item: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PubMed E-utilities 補完検索
+# PubMed E-utilities 補完
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _pubmed_supplement(
@@ -207,33 +201,24 @@ def _pubmed_supplement(
     exclude_pmids: set[str],
     max_ids: int = 300,
 ) -> list[str]:
-    """Europe PMC で取れなかった PMID を PubMed から補完して返す。"""
+    """PubMed esearch で Europe PMC にない PMID を補完して返す。"""
 
-    def _q_term(term: str, field: str = "Title/Abstract") -> str:
+    def _qt(term: str, field: str = "Title/Abstract") -> str:
         words = term.split()
         if len(words) <= 1:
             return f'"{term}"[{field}]'
         return "(" + " AND ".join(f'"{w}"[{field}]' for w in words) + ")"
 
-    def _q_gene_official():
-        return _q_term(gene)
-
-    def _q_gene_syns(max_syn: int = 8):
-        terms = [_q_term(s) for s in gene_syns[:max_syn + 1]]
-        return "(" + " OR ".join(terms) + ")"
-
-    def _q_disease_mesh():
-        heading = mesh_heading or disease
-        return f'"{heading}"[MeSH Terms]'
-
-    def _q_disease_text(max_syn: int = 3):
-        return _q_term(disease)
+    mesh_q    = f'"{mesh_heading or disease}"[MeSH Terms]'
+    gene_q    = _qt(gene)
+    syns_q    = "(" + " OR ".join(_qt(s) for s in gene_syns[:6]) + ")"
 
     queries = [
-        f'"{gene}"[Gene/Protein Name] AND {_q_disease_mesh()}',
-        f'{_q_gene_official()} AND {_q_disease_mesh()}',
-        f'{_q_gene_official()} AND {_q_disease_text()}',
-        f'{_q_gene_syns()} AND {_q_disease_mesh()}',
+        f'"{gene}"[Gene/Protein Name] AND {mesh_q}',
+        f'{gene_q} AND {mesh_q}',
+        f'{gene_q} AND {_qt(disease)}',
+        f'{syns_q} AND {mesh_q}',
+        f'{syns_q} AND {_qt(disease)}',
     ]
 
     seen: set[str] = set(exclude_pmids)
@@ -258,11 +243,10 @@ def _pubmed_supplement(
 
 
 def _pubmed_fetch_papers(pmids: list[str]) -> list[dict]:
-    """PMID リストから PubMed esummary + efetch で論文データを返す。"""
+    """PMID リストから esummary + efetch で論文データを返す。"""
     if not pmids:
         return []
 
-    # esummary で書誌情報
     try:
         r = requests.post(f"{EUTILS_BASE}/esummary.fcgi", data={
             "db": "pubmed", "id": ",".join(pmids), "retmode": "json",
@@ -272,7 +256,6 @@ def _pubmed_fetch_papers(pmids: list[str]) -> list[dict]:
     except Exception:
         summaries = {}
 
-    # efetch でアブストラクト
     time.sleep(0.3)
     abstract_map: dict[str, str] = {}
     try:
@@ -298,7 +281,6 @@ def _pubmed_fetch_papers(pmids: list[str]) -> list[dict]:
         s = summaries.get(pmid) or {}
         pub_types = list(s.get("pubtype") or [])
         abstract  = abstract_map.get(pmid, "")
-        is_clin   = _is_clinical(pub_types) or _is_clinical_by_abstract(abstract)
         papers.append({
             "pmid":            pmid,
             "title":           s.get("title", ""),
@@ -309,7 +291,7 @@ def _pubmed_fetch_papers(pmids: list[str]) -> list[dict]:
             "relevance_score": 0,
             "match_type":      "",
             "pub_types":       pub_types,
-            "is_clinical":     is_clin,
+            "is_clinical":     _is_clinical(pub_types, abstract),
             "_source":         "pubmed",
         })
     return papers
@@ -324,27 +306,29 @@ def _score_papers(
     gene: str,
     gene_syns: list[str],
     disease: str,
+    disease_alts: list[str],
 ):
     """タイトル + アブストラクトのテキストマッチでスコアを付与（in-place）。"""
-    official_l   = gene.lower()
-    gene_syns_l  = [s.lower() for s in gene_syns[1:]]
-    disease_l    = disease.lower()
-    disease_words = [w for w in disease_l.split() if len(w) > 3]
+    official_l    = gene.lower()
+    gene_syns_l   = [s.lower() for s in gene_syns[1:]]
+    disease_lower_list = [d.lower() for d in disease_alts]
+    disease_words = [w for w in disease.lower().split() if len(w) > 3]
 
     def _d_match(text: str) -> bool:
         t = text.lower()
-        return disease_l in t or all(w in t for w in disease_words)
+        return (any(d in t for d in disease_lower_list)
+                or all(w in t for w in disease_words))
 
     for p in papers:
-        tl = p["title"].lower()
-        al = (p["abstract"] or "").lower()
+        tl = (p.get("title") or "").lower()
+        al = (p.get("abstract") or "").lower()
 
-        off_t  = official_l in tl
-        off_a  = official_l in al
-        dis_t  = _d_match(p["title"])
-        dis_a  = _d_match(p["abstract"] or "")
-        syn_t  = any(s in tl for s in gene_syns_l)
-        syn_a  = any(s in al for s in gene_syns_l)
+        off_t = official_l in tl
+        off_a = official_l in al
+        dis_t = _d_match(p.get("title") or "")
+        dis_a = _d_match(p.get("abstract") or "")
+        syn_t = any(s in tl for s in gene_syns_l)
+        syn_a = any(s in al for s in gene_syns_l)
 
         if off_t and dis_t:
             score, match = 4, "公式シンボル×タイトル"
@@ -371,69 +355,71 @@ def search_literature(
     max_results: int = 100,
     disease_efo_id: str = None,
 ) -> list[dict]:
-    """Europe PMC + PubMed E-utilities から論文を収集してスコア順に返す。
+    """Europe PMC + PubMed E-utilities から論文を収集してスコア順に返す。"""
 
-    出力フォーマット（search_pubmed と同一）:
-      pmid, title, journal, year, authors, abstract,
-      relevance_score, match_type, pub_types, is_clinical
-    """
-    # ── シノニム + MeSH 見出し語 ──────────────────────────────────────────────
-    gene_syns   = _get_gene_synonyms(gene)
+    # ── シノニム + MeSH ───────────────────────────────────────────────────────
+    gene_syns    = _get_gene_synonyms(gene)
     mesh_heading = _get_mesh_heading(disease)
+    # 疾患名の候補（元の名前 + MeSH 見出し語）
+    disease_alts = list({disease, mesh_heading})
 
-    n_gsyn = len(gene_syns) - 1
     print(f"    [文献] 遺伝子シノニム ({len(gene_syns)}件): "
-          f"{', '.join(gene_syns[:6])}{'...' if n_gsyn > 5 else ''}")
-    print(f"    [文献] MeSH: 「{mesh_heading}」")
+          f"{', '.join(gene_syns[:4])}")
+    print(f"    [文献] 疾患 MeSH: 「{mesh_heading}」")
 
-    # ── Europe PMC 検索 ────────────────────────────────────────────────────
-    # フィールド指定クエリ: 遺伝子シンボル × 疾患名でタイトル+アブスト絞り込み
-    gene_q    = " OR ".join(f'"{s}"' for s in gene_syns[:5])
-    disease_q = f'"{disease}"'
-    if mesh_heading and mesh_heading.lower() != disease.lower():
-        disease_q = f'("{disease}" OR "{mesh_heading}")'
-
-    epmc_query = (
-        f'(TITLE:({gene_q}) OR ABSTRACT:({gene_q})) AND '
-        f'(TITLE:{disease_q} OR ABSTRACT:{disease_q})'
-    )
-    raw_epmc = _epmc_search(epmc_query, page_size=100, max_pages=3)
-    print(f"    [文献] Europe PMC ヒット: {len(raw_epmc)} 件")
-
-    # Europe PMC → 統一フォーマット変換（PMID ありのみ）
+    # ── Europe PMC 検索（複数クエリ / 簡潔な形式） ───────────────────────────
+    seen_ids: set[str] = set()
     epmc_papers: list[dict] = []
-    seen_pmids:  set[str]   = set()
-    for item in raw_epmc:
-        p = _epmc_to_paper(item)
-        if p["pmid"] and p["pmid"] not in seen_pmids:
-            seen_pmids.add(p["pmid"])
-            epmc_papers.append(p)
 
-    # ── PubMed 補完 ────────────────────────────────────────────────────────
+    def _add_epmc(items: list[dict]):
+        for item in items:
+            p = _epmc_to_paper(item)
+            if p["pmid"] and p["pmid"] not in seen_ids:
+                seen_ids.add(p["pmid"])
+                epmc_papers.append(p)
+
+    # Tier A: 公式シンボル + 疾患名（最シンプルなフリーテキスト）
+    _add_epmc(_epmc_search(f'"{gene}" "{disease}"', page_size=100, max_pages=3))
+
+    # Tier B: MeSH 見出し語が疾患名と異なる場合に追加
+    if mesh_heading.lower() != disease.lower() and len(epmc_papers) < max_results:
+        _add_epmc(_epmc_search(f'"{gene}" "{mesh_heading}"', page_size=50, max_pages=2))
+
+    # Tier C: 遺伝子シノニムで追加補完
+    for syn in gene_syns[1:4]:
+        if len(epmc_papers) >= max_results * 2:
+            break
+        _add_epmc(_epmc_search(f'"{syn}" "{disease}"', page_size=30, max_pages=1))
+
+    print(f"    [文献] Europe PMC: {len(epmc_papers)} 件 (PMID あり)")
+
+    # ── PubMed 補完（NCBI E-utilities） ─────────────────────────────────────
     supplement_pmids = _pubmed_supplement(
         gene, gene_syns, disease, mesh_heading,
-        exclude_pmids=seen_pmids,
+        exclude_pmids=seen_ids,
         max_ids=max_results * 3,
     )
     time.sleep(0.3)
     pubmed_papers = _pubmed_fetch_papers(supplement_pmids[:300])
     print(f"    [文献] PubMed 補完: {len(pubmed_papers)} 件")
 
-    # ── マージ ─────────────────────────────────────────────────────────────
+    # ── マージ + スコアリング ─────────────────────────────────────────────────
     all_papers = epmc_papers + pubmed_papers
-
-    # ── スコアリング ───────────────────────────────────────────────────────
-    _score_papers(all_papers, gene, gene_syns, disease)
+    _score_papers(all_papers, gene, gene_syns, disease, disease_alts)
 
     # score == 0 は除外
     all_papers = [p for p in all_papers if p["relevance_score"] > 0]
 
-    # Europe PMC は relevance ソート済みなので同スコア内で EPMC を優先
-    def _sort_key(p):
-        src_priority = 0 if p.get("_source") == "epmc" else 1
-        return (p["is_clinical"], p["relevance_score"], p["year"], -src_priority)
-
-    all_papers.sort(key=_sort_key, reverse=True)
+    # 同スコア内で Europe PMC を優先（関連度ランキングが高品質）
+    all_papers.sort(
+        key=lambda p: (
+            p["is_clinical"],
+            p["relevance_score"],
+            p.get("year", ""),
+            0 if p.get("_source") == "epmc" else 1,
+        ),
+        reverse=True,
+    )
 
     # _source フィールドは内部用なので除去
     for p in all_papers:
