@@ -540,7 +540,8 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             year     = p.get("year", "")
             authors  = p.get("authors", [])
             abstract = (p.get("abstract") or "").strip()
-            url      = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+            url      = (p.get("url") or
+                        (f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""))
             first3   = authors[:3]
             auth_str = ", ".join(first3) + (", et al" if len(authors) > 3 else "")
             short    = _short(authors, year, journal, pmid, url)
@@ -799,7 +800,8 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
             title = p.get("title", "")
             year  = p.get("year", "")
             abstract = p.get("abstract", "") or ""
-            url   = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+            url   = (p.get("url") or
+                     (f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""))
             short = f"{partner_gene} paper — {title[:80]}... ({year})"
             full  = f"{title} ({year})"
             ref = add_ref("paper", "Paper", short, full, url)

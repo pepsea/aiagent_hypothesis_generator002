@@ -149,12 +149,26 @@ def _epmc_search(query: str, page_size: int = 100, max_pages: int = 3) -> list[d
 
 
 def _epmc_to_paper(item: dict) -> dict:
-    """Europe PMC アイテム → 統一フォーマット。"""
-    # PMID が無い場合は PMC ID を代替として保持（スコアリングに使う）
-    pmid = str(item.get("pmid") or "").strip()
-    pmcid = str(item.get("pmcid") or item.get("id") or "").strip()
-    # PMID URL: PMID があれば PubMed、なければ Europe PMC リンク
-    effective_pmid = pmid or pmcid
+    """Europe PMC アイテム → 統一フォーマット。
+    プレプリント (PPR) など PMID がない論文は Europe PMC の id を使う。
+    """
+    pmid    = str(item.get("pmid")   or "").strip()
+    pmcid   = str(item.get("pmcid")  or "").strip()
+    src     = str(item.get("source") or "").strip().upper()
+    art_id  = str(item.get("id")     or "").strip()
+
+    # 識別子: PMID > PMCID > article_id（PPR1217281 など）
+    effective_pmid = pmid or pmcid or art_id
+
+    # リンク URL
+    if pmid:
+        article_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    elif pmcid:
+        article_url = f"https://europepmc.org/article/PMC/{pmcid.replace('PMC','')}"
+    elif art_id:
+        article_url = f"https://europepmc.org/article/{src}/{art_id}"
+    else:
+        article_url = ""
 
     pub_types_raw = (item.get("pubTypeList") or {}).get("pubType") or []
     if isinstance(pub_types_raw, str):
@@ -175,6 +189,7 @@ def _epmc_to_paper(item: dict) -> dict:
 
     return {
         "pmid":            effective_pmid,
+        "url":             article_url,
         "title":           (item.get("title") or "").rstrip(".").strip(),
         "journal":         item.get("journalTitle") or "",
         "year":            str(item.get("pubYear") or

@@ -271,6 +271,7 @@ def _collector_data(key: str, result) -> dict | None:
         if key == "pubmed" and isinstance(result, list):
             return {"papers": [{"title": p.get("title", ""), "journal": p.get("journal", ""),
                                  "year": p.get("year", ""), "pmid": p.get("pmid", ""),
+                                 "url": p.get("url", ""),
                                  "is_clinical": p.get("is_clinical", False),
                                  "pub_types": p.get("pub_types", []),
                                  "abstract": (p.get("abstract", "") or "")[:300]} for p in result]}

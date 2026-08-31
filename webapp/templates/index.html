@@ -1038,7 +1038,7 @@ function renderDataDetail(source, data, gene) {
             ${esc(p.title)}
           </div>
           <div style="font-size:11px;color:var(--text-sub);margin:3px 0;">${esc(p.journal)} ${p.year}
-            ${p.pmid ? `· <a href="https://pubmed.ncbi.nlm.nih.gov/${p.pmid}" target="_blank">PMID:${p.pmid}</a>` : ""}
+            ${(p.url || p.pmid) ? `· <a href="${esc(p.url || `https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`)}" target="_blank">${p.pmid ? `PMID:${p.pmid}` : esc(p.pmid || "Europe PMC")}</a>` : ""}
             ${(p.pub_types||[]).length ? `· ${esc(p.pub_types.join(", "))}` : ""}
           </div>
           <div class="abstract-text">${esc(p.abstract)}${p.abstract ? "..." : ""}</div>
