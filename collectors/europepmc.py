@@ -382,7 +382,9 @@ def search_literature(
           f"{', '.join(gene_syns[:4])}")
     print(f"    [文献] 疾患 MeSH: 「{mesh_heading}」")
 
-    # ── Europe PMC 検索（複数クエリ / 簡潔な形式） ───────────────────────────
+    # ── Europe PMC 検索 ────────────────────────────────────────────────────────
+    # EPMC はクォートなしの広いクエリで検索し EPMC 自身の関連度ランキングを活用。
+    # プレプリント(PPR)・略称(CAH 等)を使う論文も取りこぼさないようにする。
     seen_ids: set[str] = set()
     epmc_papers: list[dict] = []
 
@@ -393,20 +395,20 @@ def search_literature(
                 seen_ids.add(p["pmid"])
                 epmc_papers.append(p)
 
-    # Tier A: 公式シンボル + 疾患名（最シンプルなフリーテキスト）
-    _add_epmc(_epmc_search(f'"{gene}" "{disease}"', page_size=100, max_pages=3))
+    # Tier 1: クォートなしフリーテキスト（最広・プレプリント含む）
+    _add_epmc(_epmc_search(f'{gene} {disease}', page_size=100, max_pages=4))
 
-    # Tier B: MeSH 見出し語が疾患名と異なる場合に追加
-    if mesh_heading.lower() != disease.lower() and len(epmc_papers) < max_results:
-        _add_epmc(_epmc_search(f'"{gene}" "{mesh_heading}"', page_size=50, max_pages=2))
+    # Tier 2: MeSH 別名でさらに補完
+    if mesh_heading.lower() != disease.lower() and len(epmc_papers) < max_results * 2:
+        _add_epmc(_epmc_search(f'{gene} {mesh_heading}', page_size=50, max_pages=2))
 
-    # Tier C: 遺伝子シノニムで追加補完
+    # Tier 3: 遺伝子シノニム × 疾患名
     for syn in gene_syns[1:4]:
-        if len(epmc_papers) >= max_results * 2:
+        if len(epmc_papers) >= max_results * 3:
             break
-        _add_epmc(_epmc_search(f'"{syn}" "{disease}"', page_size=30, max_pages=1))
+        _add_epmc(_epmc_search(f'{syn} {disease}', page_size=30, max_pages=1))
 
-    print(f"    [文献] Europe PMC: {len(epmc_papers)} 件 (PMID あり)")
+    print(f"    [文献] Europe PMC: {len(epmc_papers)} 件")
 
     # ── PubMed 補完（NCBI E-utilities） ─────────────────────────────────────
     supplement_pmids = _pubmed_supplement(
@@ -422,10 +424,15 @@ def search_literature(
     all_papers = epmc_papers + pubmed_papers
     _score_papers(all_papers, gene, gene_syns, disease, disease_alts)
 
-    # score == 0 は除外
-    all_papers = [p for p in all_papers if p["relevance_score"] > 0]
+    # EPMC 論文: スコア関係なく保持（EPMC の関連度ランキングを信頼）
+    # PubMed 補完: スコア 0（遺伝子名も疾患名も本文に出てこない）は除外
+    pubmed_pmids = {p["pmid"] for p in pubmed_papers}
+    all_papers = [
+        p for p in all_papers
+        if p["pmid"] not in pubmed_pmids or p["relevance_score"] > 0
+    ]
 
-    # 同スコア内で Europe PMC を優先（関連度ランキングが高品質）
+    # ソート: 臨床研究 > スコア > 年 > EPMC優先
     all_papers.sort(
         key=lambda p: (
             p["is_clinical"],
