@@ -55,7 +55,7 @@ import network as net
 import hypothesis as hyp
 from llm.ollama_client import OllamaClient, OLLAMA_BASE_URL
 from collectors import (
-    pubtator, opentargets, uniprot, intact, gwas, chembl,
+    europepmc, opentargets, uniprot, intact, gwas, chembl,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
     reactome, toxicity, signor, biogrid, string_db,
 )
@@ -156,7 +156,7 @@ def validate_genes():
 
 # ─── Collector helpers ────────────────────────────────────────────────────
 _SRC_LABEL = {
-    "pubmed": "PubTator", "opentargets": "OpenTargets", "uniprot": "UniProt",
+    "pubmed": "文献検索", "opentargets": "OpenTargets", "uniprot": "UniProt",
     "signor": "SIGNOR", "string": "STRING", "biogrid": "BioGRID", "intact": "IntAct",
     "gwas": "GWAS", "clinvar": "ClinVar",
     "chembl": "ChEMBL", "gnomad": "gnomAD", "gtex": "GTEx",
@@ -521,7 +521,7 @@ def analyze():
 
             # ── 1. Parallel data collection with per-collector SSE events ──────
             COLLECTORS = {
-                "pubmed":         lambda: pubtator.search_pubtator(gene, disease_name, max_results=100, disease_efo_id=disease_id),
+                "pubmed":         lambda: europepmc.search_literature(gene, disease_name, max_results=100, disease_efo_id=disease_id),
                 "opentargets":    lambda: opentargets.get_target_disease_evidence(gene, disease_name, disease_id=disease_id),
                 "uniprot":        lambda: uniprot.get_protein_info(gene),
             }
@@ -639,7 +639,7 @@ def analyze():
                     ]
                     def _fetch_pp(partner):
                         try:
-                            pps = pubtator.search_pubtator(
+                            pps = europepmc.search_literature(
                                 partner, disease_name, max_results=5,
                                 disease_efo_id=disease_id)
                             return partner, [p for p in pps if p.get("relevance_score", 0) > 0]

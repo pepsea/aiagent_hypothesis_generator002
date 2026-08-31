@@ -3,7 +3,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collectors import (
-    pubtator, opentargets, intact, uniprot, gwas, chembl, toxicity,
+    europepmc, opentargets, intact, uniprot, gwas, chembl, toxicity,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold, reactome, gprofiler,
 )
 
@@ -145,7 +145,7 @@ def collect_all(
             print(f"  [+] {msg}")
 
     tasks = {
-        "pubmed":          lambda: pubtator.search_pubtator(
+        "pubmed":          lambda: europepmc.search_literature(
                                gene, disease, max_results=100,
                                disease_efo_id=disease_id),
         "opentargets":     lambda: opentargets.get_target_disease_evidence(
@@ -277,7 +277,7 @@ def collect_all(
 
     def _fetch_partner_papers(partner: str):
         try:
-            papers = pubtator.search_pubtator(
+            papers = europepmc.search_literature(
                 partner, disease, max_results=5, disease_efo_id=disease_id
             )
             papers = [p for p in papers if p.get("relevance_score", 0) > 0]
@@ -563,7 +563,7 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
 
         blocks = ["## Literature\n"]
         blocks.append(
-            f"_Pool: top {len(papers)} most-recent PubTator3 hits with gene+disease entity match "
+            f"_Pool: top {len(papers)} Europe PMC + PubMed hits with gene+disease match "
             f"({len(clinical_papers)} clinical, {len(moa_papers)} preclinical/mechanistic)._\n"
         )
         blocks.append(
