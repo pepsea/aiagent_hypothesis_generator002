@@ -1437,6 +1437,9 @@ function renderDataDetail(source, data, gene) {
         ? `<h4 style="margin:12px 0 4px;font-size:13px;">HPO症状ごとの PPI 重複 (重複あり ${perTerm.length} 件)</h4>
            <table class="data-table"><thead><tr><th>HPO ID</th><th>症状名</th><th>頻度</th><th>重複数</th><th>重複遺伝子</th></tr></thead><tbody>${ptRows}</tbody></table>`
         : `<p style="font-size:12px;color:var(--text-sub);">症状ごとの重複データなし</p>`;
+      const noteHtml = data.note
+        ? `<p style="font-size:11px;color:var(--warn,#b45309);background:var(--warn-bg,#fef9c3);padding:6px 8px;border-radius:4px;margin:6px 0;">${esc(data.note)}</p>`
+        : "";
       return `<div class="metric-row">
           <div class="metric"><div class="metric-val" style="color:var(--primary);">${sc}</div><div class="metric-label">重複スコア</div></div>
           <div class="metric"><div class="metric-val">${ov} / ${pp}</div><div class="metric-label">重複 / PPIパートナー数</div></div>
@@ -1446,7 +1449,7 @@ function renderDataDetail(source, data, gene) {
         <p style="font-size:11px;color:var(--text-sub);margin:4px 0 10px;">
           重複スコア = 症状関連遺伝子と重複する PPI パートナー数 / min(PPIパートナー数, 症状遺伝子総数)
         </p>
-        ${selfHtml}${tgHtml}${ptHtml}`;
+        ${noteHtml}${selfHtml}${tgHtml}${ptHtml}`;
     }
     if (source === "toxicity") {
       let toxcastHtml;

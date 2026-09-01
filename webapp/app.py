@@ -472,6 +472,7 @@ def _collector_data(key: str, result) -> dict | None:
                 "target_in_hpo":    sm.get("target_in_hpo", False),
                 "overlap_genes":    sm.get("overlap_genes", []),
                 "top_genes":        sm.get("top_genes", []),
+                "note":             result.get("note", ""),
                 "per_term":         [
                     {"hpo_id": t["hpo_id"], "name": t["name"],
                      "frequency": t.get("frequency", ""),

@@ -1,50 +1,132 @@
 """HPO (Human Phenotype Ontology) collector.
 
-Uses HPO annotation flat files (cached in memory) — no dependency on
-hpo.jax.org or Monarch APIs, both of which may be blocked.
-
-Data sources:
-  1. phenotype.hpoa  (disease → HP terms)
-       https://purl.obolibrary.org/obo/hp/hpoa/phenotype.hpoa
-  2. phenotype_to_genes.txt  (HP term → gene symbols)
-       https://purl.obolibrary.org/obo/hp/hpoa/phenotype_to_genes.txt
-  3. OpenTargets GraphQL  (MONDO/EFO → OMIM cross-refs)
+Strategy (in order of reliability):
+  1. OpenTargets GraphQL — disease.phenotypes → HP term IDs  (OT already works)
+  2. HPO annotation files (phenotype_to_genes.txt) — HP term → genes
+     Tried from multiple mirror URLs; cached in memory after first load.
+  3. Graceful error if all sources fail.
 """
 from __future__ import annotations
 
 import io
 import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
 _SESSION = requests.Session()
 _SESSION.headers.update({"Accept": "application/json"})
 
-# ── annotation file URLs ──────────────────────────────────────────────────
-_HPOA_URL  = "https://purl.obolibrary.org/obo/hp/hpoa/phenotype.hpoa"
-_P2G_URL   = "https://purl.obolibrary.org/obo/hp/hpoa/phenotype_to_genes.txt"
-_OT_GQL    = "https://api.platform.opentargets.org/api/v4/graphql"
+# ── OpenTargets ───────────────────────────────────────────────────────────
+_OT_GQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
-# ── in-memory cache ───────────────────────────────────────────────────────
-_lock       = threading.Lock()
-_loaded     = False
-# disease_id (OMIM:xxx / ORPHA:xxx) → [(hpo_id, hpo_name, freq), ...]
-_dis2pheno: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+_OT_PHENOTYPES_Q = """
+query($efoId: String!) {
+  disease(efoId: $efoId) {
+    id
+    name
+    dbXRefs
+    phenotypes {
+      rows {
+        phenotypeHPO { id name }
+        frequencyHPO { id label }
+      }
+    }
+  }
+}
+"""
+
+
+def _ot_get_phenotypes(mondo_id: str) -> tuple[str, list[dict]]:
+    """Query OT for HPO phenotype terms of a disease.
+
+    Returns (omim_id_or_mondo, [{hpo_id, name, frequency}, ...])
+    """
+    eid = mondo_id.replace("_", ":")  # MONDO_0018479 → MONDO:0018479
+    resp = _SESSION.post(
+        _OT_GQL,
+        json={"query": _OT_PHENOTYPES_Q, "variables": {"efoId": eid}},
+        timeout=25,
+    )
+    resp.raise_for_status()
+    dis = resp.json().get("data", {}).get("disease") or {}
+    rows = (dis.get("phenotypes") or {}).get("rows") or []
+    phenotypes = []
+    for row in rows:
+        hp = row.get("phenotypeHPO") or {}
+        freq = row.get("frequencyHPO") or {}
+        hpo_id = hp.get("id", "")
+        name   = hp.get("name", "")
+        freq_l = freq.get("label", "")
+        if hpo_id and name:
+            phenotypes.append({"hpo_id": hpo_id, "name": name, "frequency": freq_l})
+    # also grab OMIM xref for annotation file lookup
+    xrefs = dis.get("dbXRefs") or []
+    omim_ids = [x for x in xrefs if x.startswith("OMIM:")]
+    resolved_id = omim_ids[0] if omim_ids else eid
+    return resolved_id, phenotypes
+
+
+# ── HPO annotation file (HP term → genes) ────────────────────────────────
+# Multiple candidate URLs — first that responds wins.
+_P2G_URLS = [
+    # purl canonical
+    "https://purl.obolibrary.org/obo/hp/hpoa/phenotype_to_genes.txt",
+    # GitHub releases (latest)
+    "https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype_to_genes.txt",
+    # raw main branch (older location)
+    "https://raw.githubusercontent.com/obophenotype/human-phenotype-ontology/master/phenotype_to_genes.txt",
+]
+
+_lock        = threading.Lock()
+_p2g_loaded  = False
+_p2g_error   = ""
 # hpo_id → [gene_symbol, ...]
 _hpo2genes: dict[str, list[str]] = defaultdict(list)
+# disease OMIM/ORPHA → [(hpo_id, name, freq), ...]
+_dis2pheno: dict[str, list[tuple]] = defaultdict(list)
 
 
-def _load_annotations(timeout: int = 30):
-    """Download and parse HPO annotation files into memory (once)."""
-    global _loaded
-    with _lock:
-        if _loaded:
-            return
+def _try_load_p2g() -> bool:
+    """Try each URL in _P2G_URLS and parse phenotype_to_genes.txt."""
+    global _p2g_error
+    for url in _P2G_URLS:
         try:
-            # ── phenotype.hpoa → disease → HP term mapping ─────────────
-            r = _SESSION.get(_HPOA_URL, timeout=timeout)
+            r = _SESSION.get(url, timeout=30)
+            r.raise_for_status()
+            hpo_names: dict[str, str] = {}
+            for line in io.StringIO(r.text):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                # columns: hpo_id  hpo_name  ncbi_gene_id  gene_symbol  disease_id
+                if len(parts) < 4:
+                    continue
+                hpo_id, hpo_name, _, gene_sym = parts[0], parts[1], parts[2], parts[3]
+                if hpo_id not in hpo_names:
+                    hpo_names[hpo_id] = hpo_name
+                if gene_sym:
+                    _hpo2genes[hpo_id].append(gene_sym)
+            _p2g_error = ""
+            return True
+        except Exception as e:
+            _p2g_error = str(e)
+            continue
+    return False
+
+
+def _try_load_hpoa() -> bool:
+    """Try each URL for phenotype.hpoa to build disease→pheno map."""
+    hpoa_urls = [
+        "https://purl.obolibrary.org/obo/hp/hpoa/phenotype.hpoa",
+        "https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa",
+    ]
+    hpo_names: dict[str, str] = {k: "" for k in _hpo2genes}  # may already be populated
+    for url in hpoa_urls:
+        try:
+            r = _SESSION.get(url, timeout=30)
             r.raise_for_status()
             for line in io.StringIO(r.text):
                 line = line.strip()
@@ -53,93 +135,26 @@ def _load_annotations(timeout: int = 30):
                 parts = line.split("\t")
                 if len(parts) < 4:
                     continue
-                db_id   = parts[0]  # e.g. OMIM:201910
-                hpo_id  = parts[3]  # e.g. HP:0001234
-                freq    = parts[7] if len(parts) > 7 else ""
-                # hpo_name is not in this file; fill from p2g later
+                db_id  = parts[0]   # OMIM:201910 / ORPHA:xxx
+                hpo_id = parts[3]   # HP:xxxxxxx
+                freq   = parts[7] if len(parts) > 7 else ""
                 _dis2pheno[db_id].append((hpo_id, "", freq))
-
-            # ── phenotype_to_genes.txt → HP term → gene symbols ────────
-            r2 = _SESSION.get(_P2G_URL, timeout=timeout)
-            r2.raise_for_status()
-            hpo_names: dict[str, str] = {}
-            for line in io.StringIO(r2.text):
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t")
-                # format: hpo_id  hpo_name  ncbi_gene_id  gene_symbol  disease_id
-                if len(parts) < 4:
-                    continue
-                hpo_id   = parts[0]
-                hpo_name = parts[1]
-                gene_sym = parts[3]
-                if hpo_id not in hpo_names:
-                    hpo_names[hpo_id] = hpo_name
-                if gene_sym:
-                    _hpo2genes[hpo_id].append(gene_sym)
-
-            # backfill hpo_name in _dis2pheno
-            for db_id, entries in _dis2pheno.items():
-                _dis2pheno[db_id] = [
-                    (hpo_id, hpo_names.get(hpo_id, hpo_id), freq)
-                    for hpo_id, _, freq in entries
-                ]
-            _loaded = True
-        except Exception as e:
-            # leave _loaded=False so next call retries
-            raise RuntimeError(f"HPO annotation files unavailable: {e}") from e
+            return True
+        except Exception:
+            continue
+    return False
 
 
-# ── MONDO → OMIM via OpenTargets ──────────────────────────────────────────
-
-_OT_XREF_QUERY = """
-query($efoId: String!) {
-  disease(efoId: $efoId) {
-    id
-    name
-    dbXRefs
-  }
-}
-"""
-
-def _get_omim_ids(mondo_id: str) -> list[str]:
-    """Return OMIM IDs (e.g. ['OMIM:201910']) for a MONDO/EFO disease ID."""
-    eid = mondo_id.replace("_", ":")  # MONDO_0008728 → MONDO:0008728
-    try:
-        resp = _SESSION.post(
-            _OT_GQL,
-            json={"query": _OT_XREF_QUERY, "variables": {"efoId": eid}},
-            timeout=20,
-        )
-        resp.raise_for_status()
-        xrefs = resp.json().get("data", {}).get("disease", {}).get("dbXRefs") or []
-        return [x for x in xrefs if x.startswith("OMIM:")]
-    except Exception:
-        return []
+def ensure_p2g_loaded():
+    """Load phenotype_to_genes.txt into _hpo2genes (once, thread-safe)."""
+    global _p2g_loaded
+    with _lock:
+        if not _p2g_loaded:
+            _try_load_p2g()
+            _p2g_loaded = True  # mark done even if failed (avoid repeated downloads)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
-
-def get_disease_phenotypes_from_cache(
-    disease_id: str,
-    max_phenotypes: int = 50,
-) -> list[dict]:
-    """Return list of {hpo_id, name, frequency} for a disease.
-
-    disease_id: OMIM:xxx or ORPHA:xxx.
-    """
-    entries = _dis2pheno.get(disease_id, [])[:max_phenotypes]
-    return [{"hpo_id": hpo_id, "name": name, "frequency": freq}
-            for hpo_id, name, freq in entries]
-
-
-def get_term_genes_from_cache(hpo_id: str) -> list[str]:
-    """Return gene symbols associated with an HPO term."""
-    return list(dict.fromkeys(_hpo2genes.get(hpo_id, [])))  # deduplicated
-
-
-# ── Main evaluation function ───────────────────────────────────────────────
 
 def evaluate_ppi_hpo_overlap(
     gene: str,
@@ -151,61 +166,60 @@ def evaluate_ppi_hpo_overlap(
 ) -> dict:
     """Evaluate overlap between PPI partners and HPO symptom-associated genes.
 
-    Steps:
-      1. Load HPO annotation files (cached after first call).
-      2. Resolve disease to OMIM ID (from mondo_id via OpenTargets, or omim_id directly).
-      3. Look up HPO phenotype terms for the disease.
-      4. For each term, get associated genes from cache.
-      5. Compute overlap with ppi_partners.
+    Phenotype source priority:
+      1. OpenTargets disease.phenotypes (via mondo_id)
+      2. HPO annotation file _dis2pheno (via omim_id)
+
+    Gene-per-term source: HPO annotation file _hpo2genes.
     """
     ppi_set = {p.upper() for p in ppi_partners if p}
-
-    # Step 1: load annotation files
-    try:
-        _load_annotations()
-    except RuntimeError as e:
-        return {
-            "error": f"HPOアノテーションファイルにアクセスできません。"
-                     f"インターネット接続またはプロキシ設定を確認してください。({e})",
-            "disease_name": disease_name,
-        }
-
-    # Step 2: resolve OMIM ID
-    resolved_omim_ids: list[str] = []
     disease_label = disease_name
 
-    if omim_id:
-        resolved_omim_ids = [omim_id]
-    elif mondo_id:
-        resolved_omim_ids = _get_omim_ids(mondo_id)
+    # ── Step 1: get HP terms for the disease ─────────────────────────────
+    phenotypes: list[dict] = []
+    resolved_id = mondo_id or omim_id or ""
 
-    if not resolved_omim_ids:
-        return {
-            "error": f"OMIM IDが取得できませんでした (MONDO={mondo_id})",
-            "disease_name": disease_label,
-        }
+    if mondo_id:
+        try:
+            resolved_id, phenotypes = _ot_get_phenotypes(mondo_id)
+            phenotypes = phenotypes[:max_phenotypes]
+        except Exception as e:
+            phenotypes = []
+            resolved_id = mondo_id
 
-    # Step 3: collect phenotypes from all OMIM IDs for this disease
-    phenos_seen: dict[str, dict] = {}
-    for oid in resolved_omim_ids:
-        for p in get_disease_phenotypes_from_cache(oid, max_phenotypes=max_phenotypes):
-            phenos_seen[p["hpo_id"]] = p
-
-    phenotypes = list(phenos_seen.values())[:max_phenotypes]
+    # fallback: annotation file disease map
+    if not phenotypes and (omim_id or resolved_id):
+        ensure_p2g_loaded()
+        _try_load_hpoa()
+        for oid in ([omim_id] if omim_id else []) + [resolved_id]:
+            entries = _dis2pheno.get(oid, [])
+            if entries:
+                phenotypes = [
+                    {"hpo_id": hid, "name": name, "frequency": freq}
+                    for hid, name, freq in entries[:max_phenotypes]
+                ]
+                break
 
     if not phenotypes:
         return {
-            "error": f"HPO症状データなし (OMIM={resolved_omim_ids})",
+            "error": (
+                "HPO症状データを取得できませんでした。"
+                "OpenTargets API または HPO アノテーションファイルへの"
+                f"アクセスを確認してください。(disease={mondo_id or omim_id})"
+            ),
             "disease_name": disease_label,
-            "disease_id": resolved_omim_ids[0] if resolved_omim_ids else "",
         }
 
-    # Step 4: per-term overlap
+    # ── Step 2: load HP term → gene map ──────────────────────────────────
+    ensure_p2g_loaded()
+
+    # ── Step 3: per-term overlap ──────────────────────────────────────────
     per_term = []
     all_hpo_genes: set[str] = set()
     for pheno in phenotypes:
         hpo_id = pheno["hpo_id"]
-        tgenes_upper = {g.upper() for g in get_term_genes_from_cache(hpo_id) if g}
+        # deduplicated gene list from annotation file
+        tgenes_upper = {g.upper() for g in _hpo2genes.get(hpo_id, []) if g}
         all_hpo_genes.update(tgenes_upper)
         overlap = sorted(ppi_set & tgenes_upper)
         per_term.append({
@@ -219,7 +233,7 @@ def evaluate_ppi_hpo_overlap(
 
     per_term.sort(key=lambda x: x["overlap_count"], reverse=True)
 
-    # Step 5: aggregate
+    # ── Step 4: aggregate ─────────────────────────────────────────────────
     overlap_genes = ppi_set & all_hpo_genes
     gene_term_count: dict[str, int] = {}
     for pt in per_term:
@@ -236,11 +250,18 @@ def evaluate_ppi_hpo_overlap(
         len(overlap_genes) / max(1, min(len(ppi_set), total_hpo_genes)), 3
     ) if (ppi_set and total_hpo_genes) else 0.0
 
+    # Note if gene map was empty (annotation file not loaded)
+    note = ""
+    if total_hpo_genes == 0 and phenotypes:
+        note = (f"HPO症状 {len(phenotypes)} 件を取得しましたが、症状→遺伝子マッピングファイル"
+                f"(phenotype_to_genes.txt)にアクセスできなかったため重複計算できません。")
+
     return {
-        "disease_id":     resolved_omim_ids[0] if resolved_omim_ids else "",
+        "disease_id":     resolved_id,
         "disease_name":   disease_label,
         "hpo_term_count": len(phenotypes),
         "per_term":       per_term,
+        "note":           note,
         "summary": {
             "total_hpo_genes":   total_hpo_genes,
             "ppi_partner_count": len(ppi_set),
