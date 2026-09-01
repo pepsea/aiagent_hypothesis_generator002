@@ -424,6 +424,9 @@ def search_literature(
     all_papers = epmc_papers + pubmed_papers
     _score_papers(all_papers, gene, gene_syns, disease, disease_alts)
 
+    # アブストラクトがない論文は排除（LLM コンテキストに使えないため）
+    all_papers = [p for p in all_papers if (p.get("abstract") or "").strip()]
+
     # EPMC 論文: スコア関係なく保持（EPMC の関連度ランキングを信頼）
     # PubMed 補完: スコア 0（遺伝子名も疾患名も本文に出てこない）は除外
     pubmed_pmids = {p["pmid"] for p in pubmed_papers}
