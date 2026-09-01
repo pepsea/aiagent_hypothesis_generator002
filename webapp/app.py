@@ -816,7 +816,8 @@ def analyze():
                 try:
                     hpo_result = hpo_col.evaluate_ppi_hpo_overlap(
                         gene, ppi_partners, disease_name,
-                        omim_id=None, max_phenotypes=30,
+                        mondo_id=ot_disease_id,
+                        max_phenotypes=30,
                     )
                     results["hpo_overlap"] = hpo_result
                     send("collector_done", gene=gene, source="hpo_overlap",
