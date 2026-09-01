@@ -57,7 +57,7 @@ from llm.ollama_client import OllamaClient, OLLAMA_BASE_URL
 from collectors import (
     europepmc, opentargets, uniprot, intact, gwas, chembl,
     gnomad, gtex, hpa, dgidb, clinicaltrials, alphafold,
-    reactome, toxicity, signor, biogrid, string_db,
+    reactome, toxicity, signor, biogrid, string_db, hpo as hpo_col,
 )
 import snapshot as snap_mod
 
@@ -164,6 +164,7 @@ _SRC_LABEL = {
     "alphafold": "AlphaFold", "reactome": "Reactome", "toxicity": "Toxicity",
     "pathway_fit": "疾患パスウェイ",
     "network_overlap": "NW重複",
+    "hpo_overlap": "HPO症状重複",
 }
 
 def _collector_summary(key: str, result, err: str | None) -> str:
@@ -260,6 +261,15 @@ def _collector_summary(key: str, result, err: str | None) -> str:
                 return "ToxCast: APIキー未設定"
             return f"ToxCast assays: {tc.get('assay_count', 0)}"
         return "取得済み"
+    if key == "hpo_overlap" and isinstance(result, dict):
+        if "error" in result:
+            return f"エラー: {result['error'][:60]}"
+        sm = result.get("summary") or {}
+        ov = sm.get("overlap_count", 0)
+        pp = sm.get("ppi_partner_count", 0)
+        sc = sm.get("overlap_score", 0)
+        nt = result.get("hpo_term_count", 0)
+        return f"スコア {sc:.3f} / PPI重複 {ov}/{pp} 遺伝子 / HPO症状 {nt} 件"
     return "取得済み"
 
 
@@ -446,6 +456,31 @@ def _collector_data(key: str, result) -> dict | None:
                 "assays": tc.get("assays", []),
                 "toxcast_note": tc.get("note", ""),
                 "drug_adverse_events": result.get("drug_adverse_events", {}),
+            }
+        if key == "hpo_overlap" and isinstance(result, dict):
+            if "error" in result:
+                return {"error": result["error"]}
+            sm = result.get("summary") or {}
+            return {
+                "disease_id":       result.get("disease_id", ""),
+                "disease_name":     result.get("disease_name", ""),
+                "hpo_term_count":   result.get("hpo_term_count", 0),
+                "overlap_score":    sm.get("overlap_score", 0),
+                "overlap_count":    sm.get("overlap_count", 0),
+                "ppi_partner_count": sm.get("ppi_partner_count", 0),
+                "total_hpo_genes":  sm.get("total_hpo_genes", 0),
+                "target_in_hpo":    sm.get("target_in_hpo", False),
+                "overlap_genes":    sm.get("overlap_genes", []),
+                "top_genes":        sm.get("top_genes", []),
+                "per_term":         [
+                    {"hpo_id": t["hpo_id"], "name": t["name"],
+                     "frequency": t.get("frequency", ""),
+                     "hpo_gene_count": t.get("hpo_gene_count", 0),
+                     "overlap_count": t["overlap_count"],
+                     "overlap_genes": t["overlap_genes"]}
+                    for t in (result.get("per_term") or [])[:30]
+                    if t["overlap_count"] > 0
+                ],
             }
     except Exception:
         pass
@@ -775,6 +810,23 @@ def analyze():
                          summary=_collector_summary("network_overlap", net_overlap, None),
                          data=_collector_data("network_overlap", net_overlap))
 
+                # ── HPO症状×PPI重複スコア ───────────────────────────────────────
+                send("progress", gene=gene, step="ppi",
+                     message="HPO症状遺伝子とPPIパートナーの重複を解析中...")
+                try:
+                    hpo_result = hpo_col.evaluate_ppi_hpo_overlap(
+                        gene, ppi_partners, disease_name,
+                        omim_id=None, max_phenotypes=30,
+                    )
+                    results["hpo_overlap"] = hpo_result
+                    send("collector_done", gene=gene, source="hpo_overlap",
+                         ok=("error" not in hpo_result),
+                         summary=_collector_summary("hpo_overlap", hpo_result, None),
+                         data=_collector_data("hpo_overlap", hpo_result))
+                except Exception as e:
+                    send("collector_done", gene=gene, source="hpo_overlap", ok=False,
+                         summary=f"エラー: {e}", data=None)
+
                 send("progress", gene=gene, step="ppi",
                      message="対象遺伝子・PPI遺伝子のUniProt機能情報を取得中...")
                 try:
@@ -954,9 +1006,10 @@ def analyze():
                     "summary": _collector_summary(src, result, err),
                     "data": _collector_data(src, result),
                 }
-            # pathway_fit / network_overlap をスナップショットに追加
+            # pathway_fit / network_overlap / hpo_overlap をスナップショットに追加
             # network_overlap の結果は results["network_disease_overlap"] に格納されている
-            for src, res_key in [("pathway_fit", "pathway_fit"), ("network_overlap", "network_disease_overlap")]:
+            for src, res_key in [("pathway_fit", "pathway_fit"), ("network_overlap", "network_disease_overlap"),
+                                  ("hpo_overlap", "hpo_overlap")]:
                 result = results.get(res_key)
                 if result:
                     collectors_snapshot[src] = {

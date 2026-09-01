@@ -955,6 +955,7 @@ const SRC_LABEL = {
   gnomad:"gnomAD", gtex:"GTEx", hpa:"HPA", dgidb:"DGIdb",
   clinicaltrials:"臨床試験", alphafold:"AlphaFold", reactome:"Reactome",
   toxicity:"毒性", pathway_fit:"疾患パスウェイ", network_overlap:"NW重複",
+  hpo_overlap:"HPO症状重複",
 };
 
 function initCollectorGrid(gene, sources) {
@@ -1397,6 +1398,56 @@ function renderDataDetail(source, data, gene) {
         </p>
         ${selfHtml}${tableHtml}`;
     }
+    if (source === "hpo_overlap") {
+      if (data.error) return `<p style="color:var(--danger);">${esc(data.error)}</p>`;
+      const sc  = (data.overlap_score ?? 0).toFixed(3);
+      const ov  = data.overlap_count ?? 0;
+      const pp  = data.ppi_partner_count ?? 0;
+      const nt  = data.hpo_term_count ?? 0;
+      const tih = data.target_in_hpo;
+      const selfHtml = tih
+        ? `<p style="font-size:12px;color:var(--primary);margin:6px 0;">★ ターゲット遺伝子自身も HPO 症状関連遺伝子に含まれています</p>`
+        : `<p style="font-size:12px;color:var(--text-sub);margin:6px 0;">ターゲット自身は HPO 症状関連遺伝子リストに含まれていません</p>`;
+      // top genes table
+      const topGenes = (data.top_genes || []);
+      const tgRows = topGenes.map(g => {
+        const barW = Math.round((g.term_count / Math.max(1, nt)) * 100);
+        return `<tr>
+          <td style="font-weight:600;">${esc(g.symbol)}</td>
+          <td><div style="background:#d1fae5;width:${Math.min(barW,100)}%;height:10px;border-radius:3px;display:inline-block;min-width:4px;"></div> ${g.term_count} 症状</td>
+        </tr>`;
+      }).join("");
+      const tgHtml = tgRows
+        ? `<h4 style="margin:12px 0 4px;font-size:13px;">多くの症状に関連する重複 PPI パートナー (上位)</h4>
+           <table class="data-table"><thead><tr><th>PPI パートナー</th><th>関連する症状数</th></tr></thead><tbody>${tgRows}</tbody></table>`
+        : `<p style="font-size:12px;color:var(--text-sub);">重複する遺伝子なし</p>`;
+      // per-term table
+      const perTerm = (data.per_term || []);
+      const ptRows = perTerm.map(t => {
+        const gs = (t.overlap_genes || []).join(", ");
+        return `<tr>
+          <td style="font-size:11px;"><a href="https://hpo.jax.org/app/browse/term/${esc(t.hpo_id)}" target="_blank">${esc(t.hpo_id)}</a></td>
+          <td>${esc(t.name)}</td>
+          <td style="font-size:11px;color:var(--text-sub);">${esc(t.frequency||"")}</td>
+          <td style="font-weight:600;color:var(--primary);">${t.overlap_count}</td>
+          <td style="font-size:11px;">${esc(gs)}</td>
+        </tr>`;
+      }).join("");
+      const ptHtml = ptRows
+        ? `<h4 style="margin:12px 0 4px;font-size:13px;">HPO症状ごとの PPI 重複 (重複あり ${perTerm.length} 件)</h4>
+           <table class="data-table"><thead><tr><th>HPO ID</th><th>症状名</th><th>頻度</th><th>重複数</th><th>重複遺伝子</th></tr></thead><tbody>${ptRows}</tbody></table>`
+        : `<p style="font-size:12px;color:var(--text-sub);">症状ごとの重複データなし</p>`;
+      return `<div class="metric-row">
+          <div class="metric"><div class="metric-val" style="color:var(--primary);">${sc}</div><div class="metric-label">重複スコア</div></div>
+          <div class="metric"><div class="metric-val">${ov} / ${pp}</div><div class="metric-label">重複 / PPIパートナー数</div></div>
+          <div class="metric"><div class="metric-val">${nt}</div><div class="metric-label">HPO症状数</div></div>
+          <div class="metric"><div class="metric-val">${data.total_hpo_genes ?? 0}</div><div class="metric-label">HPO関連遺伝子総数</div></div>
+        </div>
+        <p style="font-size:11px;color:var(--text-sub);margin:4px 0 10px;">
+          重複スコア = 症状関連遺伝子と重複する PPI パートナー数 / min(PPIパートナー数, 症状遺伝子総数)
+        </p>
+        ${selfHtml}${tgHtml}${ptHtml}`;
+    }
     if (source === "toxicity") {
       let toxcastHtml;
       if (!data.toxcast_available) {
@@ -1570,7 +1621,7 @@ function renderSnapshot(snap) {
 
   // clinvar / toxicity / clinicaltrials / pathway_fit / network_overlap は
   // initCollectorGrid の concat か updateCollectorChip の動的生成で追加されるため除外
-  const _LATE_SOURCES = new Set(["clinvar","toxicity","clinicaltrials","pathway_fit","network_overlap"]);
+  const _LATE_SOURCES = new Set(["clinvar","toxicity","clinicaltrials","pathway_fit","network_overlap","hpo_overlap"]);
   const sources = Object.keys(snap.collectors || {}).filter(s => !_LATE_SOURCES.has(s));
   initCollectorGrid(snap.gene, sources);
   for (const [src, c] of Object.entries(snap.collectors || {})) {
