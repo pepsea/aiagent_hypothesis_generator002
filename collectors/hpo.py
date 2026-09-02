@@ -4,10 +4,15 @@ Strategy:
   1. OpenTargets GraphQL: MONDO → OMIM cross-ref (dbXRefs)
   2. HPO annotation files: disease (OMIM) → phenotypes, phenotype → genes
      Tries purl.obolibrary.org and GitHub release URLs; cached in memory.
+
+Scoring (disease_gene_network01 method):
+  - Per-symptom hypergeometric test: P(X >= k) with M=20000, n=symptom_genes, N=ppi_count+1
+  - Fisher's method: chi2 = -2 * sum(ln(p_i)), combined p from chi2 distribution
 """
 from __future__ import annotations
 
 import io
+import math
 import threading
 from collections import defaultdict
 
@@ -182,6 +187,45 @@ def _ensure_p2g():
             ]
 
 
+# ── Statistical helpers (disease_gene_network01 method) ───────────────────
+
+def _log_comb(n: int, k: int) -> float:
+    """log C(n,k) via lgamma."""
+    if k < 0 or k > n:
+        return float("-inf")
+    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+
+
+def _hypergeom_sf(k: int, M: int, n: int, N: int) -> float:
+    """P(X >= k) under Hypergeometric(M, n, N) — log-space summation."""
+    if k <= 0:
+        return 1.0
+    log_denom = _log_comb(M, N)
+    total = 0.0
+    for x in range(k, min(n, N) + 1):
+        lp = _log_comb(n, x) + _log_comb(M - n, N - x) - log_denom
+        total += math.exp(lp)
+    return min(1.0, max(0.0, total))
+
+
+def _fisher_combine(p_values: list[float]) -> float:
+    """Fisher's method: chi2 = -2*sum(ln(p_i)), returns combined p-value."""
+    if not p_values:
+        return 1.0
+    floored = [max(p, 1e-300) for p in p_values]
+    chi2 = -2.0 * sum(math.log(p) for p in floored)
+    # chi2 CDF with df=2m via series: P(chi2 > x) = exp(-x/2) * sum_{i=0}^{m-1} (x/2)^i / i!
+    m = len(p_values)
+    x = chi2 / 2.0
+    term = 1.0
+    s = 1.0
+    for i in range(1, m):
+        term *= x / i
+        s += term
+    p_combined = math.exp(-x) * s
+    return min(1.0, max(0.0, p_combined))
+
+
 # ── Main evaluation ────────────────────────────────────────────────────────
 
 def evaluate_ppi_hpo_overlap(
@@ -270,25 +314,49 @@ def evaluate_ppi_hpo_overlap(
     p2g_ok = bool(_hpo2genes)
     steps.append(f"phenotype_to_genes: {'OK' if p2g_ok else 'NG'} ({len(_hpo2genes)} terms)")
 
-    # Step 3: per-term overlap
+    # Step 3: per-term overlap + hypergeometric p-value
+    # M = background genome size (disease_gene_network01 uses 20000)
+    M = 20_000
+    N = len(ppi_set) + 1  # PPI partner count + target itself
+
     per_term = []
     all_hpo_genes: set[str] = set()
-    for hpo_id, hpo_name, freq in phenotypes:
+    p_values_for_fisher: list[float] = []
+
+    for item in phenotypes:
+        if isinstance(item, dict):
+            hpo_id = item.get("hpo_id", "")
+            hpo_name = item.get("name", hpo_id)
+            freq = item.get("frequency", "")
+        else:
+            hpo_id, hpo_name, freq = item[0], item[1], item[2]
+
         tgenes_upper = {g.upper() for g in _hpo2genes.get(hpo_id, []) if g}
         all_hpo_genes.update(tgenes_upper)
         overlap = sorted(ppi_set & tgenes_upper)
+        k = len(overlap)
+        n = len(tgenes_upper)
+
+        # hypergeometric: P(X >= k) with M=20000, n=symptom_genes, N=ppi_count+1
+        p_val = _hypergeom_sf(k, M, n, N) if (k > 0 and n > 0) else 1.0
+        if k > 0:
+            p_values_for_fisher.append(p_val)
+
         per_term.append({
             "hpo_id":         hpo_id,
             "name":           hpo_name or hpo_id,
             "frequency":      freq,
-            "hpo_gene_count": len(tgenes_upper),
+            "hpo_gene_count": n,
             "overlap_genes":  overlap,
-            "overlap_count":  len(overlap),
+            "overlap_count":  k,
+            "p_value":        p_val,
         })
 
-    per_term.sort(key=lambda x: x["overlap_count"], reverse=True)
+    per_term.sort(key=lambda x: x["p_value"])
 
-    # Step 4: aggregate
+    # Step 4: Fisher's combined p across all overlapping symptoms
+    symptom_p_value = _fisher_combine(p_values_for_fisher) if p_values_for_fisher else 1.0
+
     overlap_genes = ppi_set & all_hpo_genes
     gene_term_count: dict[str, int] = {}
     for pt in per_term:
@@ -301,17 +369,16 @@ def evaluate_ppi_hpo_overlap(
     )[:15]
 
     total_hpo_genes = len(all_hpo_genes)
-    overlap_score = round(
-        len(overlap_genes) / max(1, min(len(ppi_set), total_hpo_genes)), 3
-    ) if (ppi_set and total_hpo_genes) else 0.0
 
     note = ""
     if not p2g_ok:
         note = (f"HPO症状 {len(phenotypes)} 件を取得しましたが、"
                 "phenotype_to_genes.txt にアクセスできず遺伝子重複計算はスキップしました。")
 
+    disease_id_out = omim_ids[0] if omim_ids else (mondo_id or "")
+
     return {
-        "disease_id":     omim_ids[0],
+        "disease_id":     disease_id_out,
         "disease_name":   disease_label,
         "hpo_term_count": len(phenotypes),
         "per_term":       per_term,
@@ -322,7 +389,7 @@ def evaluate_ppi_hpo_overlap(
             "ppi_partner_count": len(ppi_set),
             "overlap_genes":     sorted(list(overlap_genes)),
             "overlap_count":     len(overlap_genes),
-            "overlap_score":     overlap_score,
+            "symptom_p_value":   symptom_p_value,
             "target_in_hpo":     gene.upper() in all_hpo_genes,
             "top_genes":         top_genes,
         },

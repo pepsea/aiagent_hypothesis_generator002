@@ -773,26 +773,29 @@ def build_llm_context(aggregated: dict, config: dict = None) -> str:
         ov_genes = sm.get("overlap_genes", [])
         ov_count = sm.get("overlap_count", 0)
         pp_count = sm.get("ppi_partner_count", 0)
-        ov_score = sm.get("overlap_score", 0.0)
+        symptom_pv = sm.get("symptom_p_value", 1.0)
         target_in = sm.get("target_in_hpo", False)
         top_terms = [t for t in (hpo_ov.get("per_term") or []) if t.get("overlap_count", 0) > 0][:5]
         top_genes = sm.get("top_genes", [])[:8]
         if ov_count > 0 or target_in:
             hpo_lines = [
-                f"## HPO Phenotype–PPI Overlap\n"
+                f"## HPO Phenotype–PPI Overlap (hypergeometric + Fisher method)\n"
                 f"PPI partners of {gene} that are also associated with {disease} HPO phenotype terms:\n"
-                f"- Overlap score: {ov_score:.3f} ({ov_count} of {pp_count} PPI partners in HPO gene sets)\n"
+                f"- Fisher combined p-value: {symptom_pv:.3e} ({ov_count} of {pp_count} PPI partners in HPO gene sets)\n"
                 f"- Target gene {gene} itself in HPO gene set: {'Yes' if target_in else 'No'}\n"
             ]
             if top_genes:
                 tg_str = ", ".join(f"{g['symbol']}({g['term_count']} terms)" for g in top_genes)
                 hpo_lines.append(f"- Top overlapping PPI partners: {tg_str}\n")
             if top_terms:
-                hpo_lines.append("- Top HPO terms with PPI overlap:")
+                hpo_lines.append("- Top HPO terms with PPI overlap (sorted by hypergeometric p-value):")
                 for t in top_terms:
                     gs = ", ".join(t.get("overlap_genes", [])[:5])
+                    pv_str = f"{t['p_value']:.3e}" if "p_value" in t else ""
                     hpo_lines.append(
-                        f"  - {t['name']} ({t['hpo_id']}): {t['overlap_count']} partners — {gs}"
+                        f"  - {t['name']} ({t['hpo_id']}): {t['overlap_count']} partners"
+                        + (f", p={pv_str}" if pv_str else "")
+                        + f" — {gs}"
                     )
             sections.append("\n".join(hpo_lines) + "\n")
 

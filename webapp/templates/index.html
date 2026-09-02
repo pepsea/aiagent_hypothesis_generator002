@@ -1405,7 +1405,9 @@ function renderDataDetail(source, data, gene) {
           : "";
         return `<p style="color:var(--danger);">${esc(data.error)}</p>${stepsHtml}`;
       }
-      const sc  = (data.overlap_score ?? 0).toFixed(3);
+      const pv  = data.symptom_p_value ?? 1.0;
+      const pvStr = pv < 0.001 ? pv.toExponential(2) : pv.toFixed(4);
+      const pvColor = pv < 0.05 ? "var(--primary)" : pv < 0.2 ? "var(--warn,#b45309)" : "var(--text-sub)";
       const ov  = data.overlap_count ?? 0;
       const pp  = data.ppi_partner_count ?? 0;
       const nt  = data.hpo_term_count ?? 0;
@@ -1426,33 +1428,37 @@ function renderDataDetail(source, data, gene) {
         ? `<h4 style="margin:12px 0 4px;font-size:13px;">多くの症状に関連する重複 PPI パートナー (上位)</h4>
            <table class="data-table"><thead><tr><th>PPI パートナー</th><th>関連する症状数</th></tr></thead><tbody>${tgRows}</tbody></table>`
         : `<p style="font-size:12px;color:var(--text-sub);">重複する遺伝子なし</p>`;
-      // per-term table
+      // per-term table (sorted by p-value ascending)
       const perTerm = (data.per_term || []);
       const ptRows = perTerm.map(t => {
         const gs = (t.overlap_genes || []).join(", ");
+        const tpv = t.p_value ?? 1.0;
+        const tpvStr = tpv < 0.001 ? tpv.toExponential(2) : tpv.toFixed(4);
+        const tpvColor = tpv < 0.05 ? "var(--primary)" : "inherit";
         return `<tr>
           <td style="font-size:11px;"><a href="https://hpo.jax.org/app/browse/term/${esc(t.hpo_id)}" target="_blank">${esc(t.hpo_id)}</a></td>
           <td>${esc(t.name)}</td>
           <td style="font-size:11px;color:var(--text-sub);">${esc(t.frequency||"")}</td>
           <td style="font-weight:600;color:var(--primary);">${t.overlap_count}</td>
+          <td style="font-weight:600;color:${tpvColor};">${tpvStr}</td>
           <td style="font-size:11px;">${esc(gs)}</td>
         </tr>`;
       }).join("");
       const ptHtml = ptRows
-        ? `<h4 style="margin:12px 0 4px;font-size:13px;">HPO症状ごとの PPI 重複 (重複あり ${perTerm.length} 件)</h4>
-           <table class="data-table"><thead><tr><th>HPO ID</th><th>症状名</th><th>頻度</th><th>重複数</th><th>重複遺伝子</th></tr></thead><tbody>${ptRows}</tbody></table>`
+        ? `<h4 style="margin:12px 0 4px;font-size:13px;">HPO症状ごとの PPI 重複 (重複あり ${perTerm.length} 件、p値昇順)</h4>
+           <table class="data-table"><thead><tr><th>HPO ID</th><th>症状名</th><th>頻度</th><th>重複数</th><th>p値</th><th>重複遺伝子</th></tr></thead><tbody>${ptRows}</tbody></table>`
         : `<p style="font-size:12px;color:var(--text-sub);">症状ごとの重複データなし</p>`;
       const noteHtml = data.note
         ? `<p style="font-size:11px;color:var(--warn,#b45309);background:var(--warn-bg,#fef9c3);padding:6px 8px;border-radius:4px;margin:6px 0;">${esc(data.note)}</p>`
         : "";
       return `<div class="metric-row">
-          <div class="metric"><div class="metric-val" style="color:var(--primary);">${sc}</div><div class="metric-label">重複スコア</div></div>
+          <div class="metric"><div class="metric-val" style="color:${pvColor};">${pvStr}</div><div class="metric-label">Fisher合成 p値</div></div>
           <div class="metric"><div class="metric-val">${ov} / ${pp}</div><div class="metric-label">重複 / PPIパートナー数</div></div>
           <div class="metric"><div class="metric-val">${nt}</div><div class="metric-label">HPO症状数</div></div>
           <div class="metric"><div class="metric-val">${data.total_hpo_genes ?? 0}</div><div class="metric-label">HPO関連遺伝子総数</div></div>
         </div>
         <p style="font-size:11px;color:var(--text-sub);margin:4px 0 10px;">
-          重複スコア = 症状関連遺伝子と重複する PPI パートナー数 / min(PPIパートナー数, 症状遺伝子総数)
+          Fisher合成 p値 = 超幾何検定 p値を Fisher 法で統合 (M=20000, N=PPIパートナー数+1)
         </p>
         ${noteHtml}${selfHtml}${tgHtml}${ptHtml}`;
     }

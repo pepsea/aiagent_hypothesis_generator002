@@ -267,9 +267,9 @@ def _collector_summary(key: str, result, err: str | None) -> str:
         sm = result.get("summary") or {}
         ov = sm.get("overlap_count", 0)
         pp = sm.get("ppi_partner_count", 0)
-        sc = sm.get("overlap_score", 0)
+        pv = sm.get("symptom_p_value", 1.0)
         nt = result.get("hpo_term_count", 0)
-        return f"スコア {sc:.3f} / PPI重複 {ov}/{pp} 遺伝子 / HPO症状 {nt} 件"
+        return f"p値 {pv:.3e} / PPI重複 {ov}/{pp} 遺伝子 / HPO症状 {nt} 件"
     return "取得済み"
 
 
@@ -465,7 +465,7 @@ def _collector_data(key: str, result) -> dict | None:
                 "disease_id":       result.get("disease_id", ""),
                 "disease_name":     result.get("disease_name", ""),
                 "hpo_term_count":   result.get("hpo_term_count", 0),
-                "overlap_score":    sm.get("overlap_score", 0),
+                "symptom_p_value":  sm.get("symptom_p_value", 1.0),
                 "overlap_count":    sm.get("overlap_count", 0),
                 "ppi_partner_count": sm.get("ppi_partner_count", 0),
                 "total_hpo_genes":  sm.get("total_hpo_genes", 0),
@@ -478,7 +478,8 @@ def _collector_data(key: str, result) -> dict | None:
                      "frequency": t.get("frequency", ""),
                      "hpo_gene_count": t.get("hpo_gene_count", 0),
                      "overlap_count": t["overlap_count"],
-                     "overlap_genes": t["overlap_genes"]}
+                     "overlap_genes": t["overlap_genes"],
+                     "p_value": t.get("p_value", 1.0)}
                     for t in (result.get("per_term") or [])[:30]
                     if t["overlap_count"] > 0
                 ],
