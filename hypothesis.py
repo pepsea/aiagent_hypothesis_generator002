@@ -37,9 +37,29 @@ State the top expressing tissues from GTEx (TPM values) and HPA. Note subcellula
 Describe key PPI partners and pathway memberships relevant to {disease}.
 Also reference the "Disease Pathway Analysis" section: state the pathway_overlap_score, name the top disease pathways, and whether {gene} is a direct member.
 
-### 1e. Overall Validity Score
-**Overall: Low / Moderate / High / Very High**
-Two-sentence synthesis.
+### 1e. Overall Target Validity — Evidence Matrix
+
+Present the following four rows as a compact table or structured list. Use only values present in the evidence context; write "No data" for absent items.
+
+| Category | Metric | Value |
+|---|---|---|
+| **Genetic Evidence** | ClinVar Pathogenic variants | N |
+| | ClinVar Likely Pathogenic variants | N |
+| | ClinVar VUS | N |
+| | ClinVar other (Benign/LB/Conflicting) | N |
+| | GWAS hits (any trait) | N |
+| **Functional Evidence** | Clinical papers (disease × gene) | N |
+| | Non-clinical papers (disease × gene) | N |
+| **Clinical Trials** | Trials for {disease} targeting {gene} | N |
+| | Compounds approved/in-development for other diseases | N (list names) |
+| **Gene Expression** | Disease-relevant tissue (name it) | tissue name |
+| | Expression level in that tissue | TPM / HPA level |
+
+For **Functional Evidence**: count papers in the "Direct Literature" section that discuss clinical data (patient cohorts, clinical trials, case series) as "Clinical", and those using cell lines, animal models, or in-vitro experiments as "Non-clinical". State the totals.
+
+For **Gene Expression**: identify the tissue most relevant to the symptom onset of {disease} (e.g., adrenal cortex for adrenal disease, liver for metabolic disease), name it explicitly, and state the GTEx TPM or HPA expression level for {gene} in that tissue from the evidence.
+
+After the table, write one sentence summarising the overall strength of evidence.
 
 ---
 
@@ -159,9 +179,29 @@ GWASヒット数・ClinVar変異数を明記。具体的な形質名・p値・�
 GTEx（TPM値）・HPAから上位発現組織を具体的に記述。細胞内局在・タンパク質クラスを明記。
 主要PPI相互作用パートナーと{disease}関連パスウェイを記述。
 
-### 1e. ターゲット妥当性総合スコア
-**総合：低 / 中 / 高 / 非常に高**
-2文以内で根拠をまとめる。
+### 1e. ターゲット妥当性 — エビデンスマトリックス
+
+以下の4カテゴリをコンパクトな表または構造化リストで示すこと。エビデンスコンテキストに存在する値のみ記載し、データがない項目は「データなし」とする。
+
+| カテゴリ | 指標 | 値 |
+|---|---|---|
+| **遺伝的エビデンス** | ClinVar Pathogenic変異数 | N件 |
+| | ClinVar Likely Pathogenic変異数 | N件 |
+| | ClinVar VUS変異数 | N件 |
+| | ClinVar その他（Benign/LB/Conflicting） | N件 |
+| | GWASヒット数（疾患・形質問わず） | N件 |
+| **機能的エビデンス** | 臨床データを含む論文数（患者コホート・臨床試験・症例報告） | N件 |
+| | 非臨床データの論文数（細胞株・動物モデル・in vitro） | N件 |
+| **臨床試験** | {disease}を対象とした{gene}関連試験数 | N件 |
+| | 他疾患で開発中・承認済み化合物数 | N種類（薬剤名を列挙） |
+| **遺伝子発現** | {disease}の症状発症に関連する組織（名称を明示） | 組織名 |
+| | その組織での{gene}の発現量 | TPM値 / HPAレベル |
+
+**機能的エビデンス**の計上方法：「Direct Literature」セクションの論文のうち、患者データ・臨床試験・症例報告を含むものを「臨床」、細胞株・動物モデル・in vitro実験のみのものを「非臨床」としてそれぞれ件数を記載する。
+
+**遺伝子発現**：{disease}の症状発症と最も関連する組織（例：副腎疾患なら副腎皮質、代謝疾患なら肝臓）を具体的に特定・明示し、エビデンス内のGTEx TPM値またはHPA発現レベルを引用する。
+
+表の後に、エビデンス全体の強度を1文でまとめる。
 
 ---
 
