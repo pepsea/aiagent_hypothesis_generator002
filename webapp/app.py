@@ -530,8 +530,8 @@ def analyze():
     string_score = int(ppi.get("string_score", 700))
     min_score    = ppi.get("min_score")
     min_score    = float(min_score) if min_score not in (None, "", "null") else None
-    hub_threshold = int(ppi.get("hub_threshold", 1000))
-    max_nodes    = int(ppi.get("max_nodes", 100))
+    hub_threshold = int(ppi.get("hub_threshold", 500))
+    max_nodes    = int(ppi.get("max_nodes", 500))
 
     if not genes or not disease_name:
         return jsonify({"error": "genes and disease_name required"}), 400

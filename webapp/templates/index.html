@@ -278,10 +278,10 @@ textarea { resize: vertical; min-height: 90px; font-family: monospace; }
         <input type="text" id="ppi-min-score" placeholder="例: 0.4（空欄=なし）" style="margin-top:2px;">
       </label>
       <label style="font-size:12px;">ハブ除外閾値（相互作用数）:
-        <input type="text" id="ppi-hub-threshold" value="1000" style="margin-top:2px;">
+        <input type="text" id="ppi-hub-threshold" value="500" style="margin-top:2px;">
       </label>
       <label style="font-size:12px;">最大パートナー数:
-        <input type="text" id="ppi-max-nodes" value="100" style="margin-top:2px;">
+        <input type="text" id="ppi-max-nodes" value="500" style="margin-top:2px;">
       </label>
     </div>
   </div>
@@ -475,8 +475,8 @@ function collectPpiConfig() {
     sources,
     string_score: num("ppi-string-score", 700),
     min_score: minRaw === "" ? null : parseFloat(minRaw),
-    hub_threshold: num("ppi-hub-threshold", 1000),
-    max_nodes: num("ppi-max-nodes", 100),
+    hub_threshold: num("ppi-hub-threshold", 500),
+    max_nodes: num("ppi-max-nodes", 500),
   };
 }
 
