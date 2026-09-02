@@ -33,8 +33,11 @@ _HPO_BASE = "https://hpo.jax.org/api/hpo"
 
 
 def _ot_get_disease_info(mondo_id: str) -> tuple[str, list[str]]:
-    """Return (disease_name, [OMIM:xxx, ...]) via OpenTargets GraphQL."""
-    eid = mondo_id.replace("_", ":")
+    """Return (disease_name, [OMIM:xxx, ...]) via OpenTargets GraphQL.
+
+    OT uses underscore format (MONDO_0008728), NOT colon format.
+    """
+    eid = mondo_id  # keep as-is: MONDO_0008728
     resp = _SESSION.post(
         _OT_GQL,
         json={"query": _OT_XREF_Q, "variables": {"efoId": eid}},
@@ -65,8 +68,11 @@ def _hpo_parse_disease_data(data: dict) -> list[dict]:
 
 
 def _hpo_api_disease_by_id(disease_id: str) -> list[dict]:
-    """Try HPO JAX API with a disease ID (OMIM:, ORPHA:, MONDO:)."""
-    uid = disease_id.replace("_", ":")
+    """Try HPO JAX API with a disease ID (OMIM:, ORPHA:, MONDO:).
+
+    HPO API uses colon format (OMIM:201910, MONDO:0008728).
+    """
+    uid = disease_id.replace("_", ":")  # MONDO_0008728 → MONDO:0008728 for HPO
     r = _SESSION.get(f"{_HPO_BASE}/disease/{uid}", timeout=20)
     r.raise_for_status()
     return _hpo_parse_disease_data(r.json())
