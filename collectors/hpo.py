@@ -25,12 +25,15 @@ query($efoId: String!) {
     id
     name
     dbXRefs
+    synonyms { terms { term } }
   }
 }
 """
 
+_HPO_BASE = "https://hpo.jax.org/api/hpo"
 
-def _ot_get_omim_ids(mondo_id: str) -> tuple[str, list[str]]:
+
+def _ot_get_disease_info(mondo_id: str) -> tuple[str, list[str]]:
     """Return (disease_name, [OMIM:xxx, ...]) via OpenTargets GraphQL."""
     eid = mondo_id.replace("_", ":")
     resp = _SESSION.post(
@@ -47,6 +50,27 @@ def _ot_get_omim_ids(mondo_id: str) -> tuple[str, list[str]]:
     name  = dis.get("name", "")
     omim_ids = [x for x in xrefs if x.startswith("OMIM:")]
     return name, omim_ids
+
+
+def _hpo_api_disease(disease_id: str) -> list[dict]:
+    """Try HPO JAX API directly with any disease ID (OMIM:, ORPHA:, MONDO:).
+
+    Returns [{hpo_id, name, frequency}, ...] or [] on failure.
+    """
+    uid = disease_id.replace("_", ":")  # MONDO_0008728 → MONDO:0008728
+    r = _SESSION.get(f"{_HPO_BASE}/disease/{uid}", timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    raw = data.get("catTermsCombo") or data.get("phenotypes") or []
+    result = []
+    for p in raw:
+        hpo_id = p.get("ontologyId") or (p.get("term") or {}).get("id")
+        name   = p.get("name")        or (p.get("term") or {}).get("name")
+        freq   = p.get("frequency") or {}
+        freq_l = freq.get("label", "") if isinstance(freq, dict) else str(freq or "")
+        if hpo_id and name:
+            result.append({"hpo_id": hpo_id, "name": name, "frequency": freq_l})
+    return result
 
 
 # ── HPO annotation files ──────────────────────────────────────────────────
@@ -151,56 +175,68 @@ def evaluate_ppi_hpo_overlap(
     disease_label = disease_name
     steps: list[str] = []
 
-    # Step 1: resolve OMIM ID from MONDO via OpenTargets
+    # Step 1a: OMIM IDs — direct or via OT dbXRefs
     omim_ids: list[str] = []
     if omim_id:
         omim_ids = [omim_id]
         steps.append(f"OMIM直接指定: {omim_id}")
     elif mondo_id:
         try:
-            name, omim_ids = _ot_get_omim_ids(mondo_id)
+            name, omim_ids = _ot_get_disease_info(mondo_id)
             if name:
                 disease_label = name
-            steps.append(f"OT dbXRefs取得: {mondo_id} → {omim_ids}")
+            steps.append(f"OT dbXRefs: {mondo_id} → {omim_ids}")
         except Exception as e:
             steps.append(f"OT dbXRefs失敗: {e}")
 
-    if not omim_ids:
-        return {
-            "error": f"OMIM IDを取得できませんでした ({'; '.join(steps)})",
-            "disease_name": disease_label,
-            "steps": steps,
-        }
+    # Step 1b: try HPO API directly (MONDO or OMIM) — works if hpo.jax.org accessible
+    phenotypes: list[dict] = []
+    for did in (omim_ids or []) + ([mondo_id] if mondo_id else []):
+        try:
+            phenotypes = _hpo_api_disease(did)
+            if phenotypes:
+                steps.append(f"HPO API直接取得: {did} → {len(phenotypes)} 症状")
+                break
+        except Exception as e:
+            steps.append(f"HPO API失敗 ({did}): {e}")
 
-    # Step 2: load annotation files
-    _ensure_hpoa()
-    _ensure_p2g()
+    # Step 1c: fallback — HPO annotation files
+    if not phenotypes:
+        _ensure_hpoa()
+        _ensure_p2g()
+        hpoa_ok = bool(_dis2pheno)
+        p2g_ok  = bool(_hpo2genes)
+        steps.append(f"phenotype.hpoa: {'OK' if hpoa_ok else 'NG'} ({len(_dis2pheno)} diseases)")
 
-    hpoa_ok = bool(_dis2pheno)
-    p2g_ok  = bool(_hpo2genes)
-    steps.append(f"phenotype.hpoa: {'OK' if hpoa_ok else 'NG'} ({len(_dis2pheno)} diseases)")
-    steps.append(f"phenotype_to_genes: {'OK' if p2g_ok else 'NG'} ({len(_hpo2genes)} terms)")
-
-    # Step 3: get phenotype list
-    phenos_seen: dict[str, tuple] = {}
-    for oid in omim_ids:
-        for entry in _dis2pheno.get(oid, []):
-            hpo_id = entry[0]
-            if hpo_id not in phenos_seen:
-                phenos_seen[hpo_id] = entry
-    phenotypes = list(phenos_seen.values())[:max_phenotypes]
+        phenos_seen: dict[str, tuple] = {}
+        for oid in omim_ids:
+            for entry in _dis2pheno.get(oid, []):
+                hid = entry[0]
+                if hid not in phenos_seen:
+                    phenos_seen[hid] = entry
+        if phenos_seen:
+            phenotypes = [
+                {"hpo_id": hid, "name": nm, "frequency": fr}
+                for hid, nm, fr in list(phenos_seen.values())[:max_phenotypes]
+            ]
+            steps.append(f"annotation file: {len(phenotypes)} 症状")
 
     if not phenotypes:
         return {
-            "error": (
-                f"HPO症状データなし。"
-                f"OMIM={omim_ids}, annotation {'OK' if hpoa_ok else 'NG (ファイル取得失敗)'}"
-            ),
+            "error": f"HPO症状データを取得できませんでした ({'; '.join(steps)})",
             "disease_name": disease_label,
             "steps": steps,
         }
 
-    # Step 4: per-term overlap
+    phenotypes = phenotypes[:max_phenotypes]
+
+    # Step 2: load HP→gene map if not already loaded
+    if not _hpo2genes:
+        _ensure_p2g()
+    p2g_ok = bool(_hpo2genes)
+    steps.append(f"phenotype_to_genes: {'OK' if p2g_ok else 'NG'} ({len(_hpo2genes)} terms)")
+
+    # Step 3: per-term overlap
     per_term = []
     all_hpo_genes: set[str] = set()
     for hpo_id, hpo_name, freq in phenotypes:
@@ -218,7 +254,7 @@ def evaluate_ppi_hpo_overlap(
 
     per_term.sort(key=lambda x: x["overlap_count"], reverse=True)
 
-    # Step 5: aggregate
+    # Step 4: aggregate
     overlap_genes = ppi_set & all_hpo_genes
     gene_term_count: dict[str, int] = {}
     for pt in per_term:
