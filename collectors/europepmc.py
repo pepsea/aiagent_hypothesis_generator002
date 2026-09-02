@@ -235,6 +235,10 @@ def _pubmed_supplement(
         f'{syns_q} AND {mesh_q}',
         f'{syns_q} AND {_qt(disease)}',
     ]
+    # 短縮形クエリを追加（長い疾患名のとき補完効果が大きい）
+    if len(disease.split()) > 4:
+        for sf in _disease_short_forms(disease)[:2]:
+            queries.append(f'{gene_q} AND {_qt(sf)}')
 
     seen: set[str] = set(exclude_pmids)
     new_pmids: list[str] = []
@@ -328,11 +332,17 @@ def _score_papers(
     gene_syns_l   = [s.lower() for s in gene_syns[1:]]
     disease_lower_list = [d.lower() for d in disease_alts]
     disease_words = [w for w in disease.lower().split() if len(w) > 3]
+    # 長い疾患名: 70%以上の単語が揃えば一致とみなす（"classic"等の修飾語の有無を吸収）
+    _d_thresh = max(2, int(len(disease_words) * 0.7)) if len(disease_words) >= 4 else len(disease_words)
 
     def _d_match(text: str) -> bool:
         t = text.lower()
-        return (any(d in t for d in disease_lower_list)
-                or all(w in t for w in disease_words))
+        if any(d in t for d in disease_lower_list):
+            return True
+        if not disease_words:
+            return False
+        matched = sum(1 for w in disease_words if w in t)
+        return matched >= _d_thresh
 
     for p in papers:
         tl = (p.get("title") or "").lower()
@@ -364,6 +374,32 @@ def _score_papers(
 # メイン関数（search_pubmed と同じシグネチャ・出力フォーマット）
 # ─────────────────────────────────────────────────────────────────────────────
 
+_STOPWORDS = {"due", "to", "by", "of", "the", "and", "or", "in", "for",
+              "with", "via", "from", "into", "type", "form"}
+
+
+def _disease_short_forms(disease: str) -> list[str]:
+    """長い疾患名から短い検索用バリアントを生成する。
+
+    例: "classic congenital adrenal hyperplasia due to 21-hydroxylase deficiency"
+        → ["congenital adrenal hyperplasia", "adrenal hyperplasia deficiency", ...]
+    """
+    variants: list[str] = []
+    words = disease.lower().split()
+    # ストップワードと 'classic'/'primary'/'secondary' 等の修飾語を除く
+    content_words = [w for w in words if w not in _STOPWORDS and len(w) > 3]
+    if len(content_words) >= 3:
+        variants.append(" ".join(content_words[:3]))
+    if len(content_words) >= 4:
+        variants.append(" ".join(content_words[:4]))
+    # 先頭から3単語(ストップワード含む)
+    if len(words) >= 3:
+        short3 = " ".join(words[:3])
+        if short3.lower() != disease.lower():
+            variants.append(short3)
+    return list(dict.fromkeys(v for v in variants if v.lower() != disease.lower()))
+
+
 def search_literature(
     gene: str,
     disease: str,
@@ -375,8 +411,9 @@ def search_literature(
     # ── シノニム + MeSH ───────────────────────────────────────────────────────
     gene_syns    = _get_gene_synonyms(gene)
     mesh_heading = _get_mesh_heading(disease)
-    # 疾患名の候補（元の名前 + MeSH 見出し語）
-    disease_alts = list({disease, mesh_heading})
+    # 疾患名の候補（元の名前 + MeSH 見出し語 + 短縮形）
+    short_forms  = _disease_short_forms(disease)
+    disease_alts = list(dict.fromkeys([disease, mesh_heading] + short_forms))
 
     print(f"    [文献] 遺伝子シノニム ({len(gene_syns)}件): "
           f"{', '.join(gene_syns[:4])}")
@@ -384,7 +421,7 @@ def search_literature(
 
     # ── Europe PMC 検索 ────────────────────────────────────────────────────────
     # EPMC はクォートなしの広いクエリで検索し EPMC 自身の関連度ランキングを活用。
-    # プレプリント(PPR)・略称(CAH 等)を使う論文も取りこぼさないようにする。
+    # 長い疾患名はEPMCで全単語AND扱いになるため、短縮形も並行して検索する。
     seen_ids: set[str] = set()
     epmc_papers: list[dict] = []
 
@@ -395,8 +432,14 @@ def search_literature(
                 seen_ids.add(p["pmid"])
                 epmc_papers.append(p)
 
-    # Tier 1: クォートなしフリーテキスト（最広・プレプリント含む）
+    # Tier 1a: 完全疾患名クエリ
     _add_epmc(_epmc_search(f'{gene} {disease}', page_size=100, max_pages=4))
+
+    # Tier 1b: 短縮形クエリ（長い疾患名のとき有効）
+    if len(disease.split()) > 4:
+        for sf in short_forms[:2]:
+            if len(epmc_papers) < max_results * 3:
+                _add_epmc(_epmc_search(f'{gene} {sf}', page_size=80, max_pages=2))
 
     # Tier 2: MeSH 別名でさらに補完
     if mesh_heading.lower() != disease.lower() and len(epmc_papers) < max_results * 2:
@@ -407,6 +450,9 @@ def search_literature(
         if len(epmc_papers) >= max_results * 3:
             break
         _add_epmc(_epmc_search(f'{syn} {disease}', page_size=30, max_pages=1))
+        # シノニム × 短縮形
+        if short_forms and len(epmc_papers) < max_results * 3:
+            _add_epmc(_epmc_search(f'{syn} {short_forms[0]}', page_size=20, max_pages=1))
 
     print(f"    [文献] Europe PMC: {len(epmc_papers)} 件")
 
