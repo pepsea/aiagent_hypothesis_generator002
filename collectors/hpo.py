@@ -51,15 +51,7 @@ def _ot_get_disease_info(mondo_id: str) -> tuple[str, list[str]]:
     return name, omim_ids
 
 
-def _hpo_api_disease(disease_id: str) -> list[dict]:
-    """Try HPO JAX API directly with any disease ID (OMIM:, ORPHA:, MONDO:).
-
-    Returns [{hpo_id, name, frequency}, ...] or [] on failure.
-    """
-    uid = disease_id.replace("_", ":")  # MONDO_0008728 → MONDO:0008728
-    r = _SESSION.get(f"{_HPO_BASE}/disease/{uid}", timeout=20)
-    r.raise_for_status()
-    data = r.json()
+def _hpo_parse_disease_data(data: dict) -> list[dict]:
     raw = data.get("catTermsCombo") or data.get("phenotypes") or []
     result = []
     for p in raw:
@@ -70,6 +62,31 @@ def _hpo_api_disease(disease_id: str) -> list[dict]:
         if hpo_id and name:
             result.append({"hpo_id": hpo_id, "name": name, "frequency": freq_l})
     return result
+
+
+def _hpo_api_disease_by_id(disease_id: str) -> list[dict]:
+    """Try HPO JAX API with a disease ID (OMIM:, ORPHA:, MONDO:)."""
+    uid = disease_id.replace("_", ":")
+    r = _SESSION.get(f"{_HPO_BASE}/disease/{uid}", timeout=20)
+    r.raise_for_status()
+    return _hpo_parse_disease_data(r.json())
+
+
+def _hpo_api_search_disease(query: str) -> list[dict]:
+    """Search HPO by disease name → get first hit's phenotypes."""
+    r = _SESSION.get(f"{_HPO_BASE}/search",
+                     params={"q": query, "max": 3, "category": "diseases"},
+                     timeout=15)
+    r.raise_for_status()
+    diseases = r.json().get("diseases") or []
+    if not diseases:
+        return []
+    disease_id = diseases[0].get("diseaseId", "")
+    if not disease_id:
+        return []
+    r2 = _SESSION.get(f"{_HPO_BASE}/disease/{disease_id}", timeout=20)
+    r2.raise_for_status()
+    return _hpo_parse_disease_data(r2.json())
 
 
 # ── HPO annotation files ──────────────────────────────────────────────────
@@ -188,18 +205,30 @@ def evaluate_ppi_hpo_overlap(
         except Exception as e:
             steps.append(f"OT dbXRefs失敗: {e}")
 
-    # Step 1b: try HPO API directly (MONDO or OMIM) — works if hpo.jax.org accessible
+    # Step 1b: try HPO API by ID (OMIM first, then MONDO)
     phenotypes: list[dict] = []
     for did in (omim_ids or []) + ([mondo_id] if mondo_id else []):
         try:
-            phenotypes = _hpo_api_disease(did)
+            phenotypes = _hpo_api_disease_by_id(did)
             if phenotypes:
-                steps.append(f"HPO API直接取得: {did} → {len(phenotypes)} 症状")
+                steps.append(f"HPO API (ID): {did} → {len(phenotypes)} 症状")
                 break
         except Exception as e:
-            steps.append(f"HPO API失敗 ({did}): {e}")
+            steps.append(f"HPO API (ID) 失敗 ({did}): {str(e)[:60]}")
 
-    # Step 1c: fallback — HPO annotation files
+    # Step 1c: try HPO search by disease name (short name works better than full OT name)
+    if not phenotypes and disease_name:
+        short_name = " ".join(disease_name.split()[:5])  # first 5 words
+        for q in ([disease_name] if disease_name != short_name else []) + [short_name]:
+            try:
+                phenotypes = _hpo_api_search_disease(q)
+                if phenotypes:
+                    steps.append(f"HPO API (検索): '{q}' → {len(phenotypes)} 症状")
+                    break
+            except Exception as e:
+                steps.append(f"HPO API (検索) 失敗 '{q}': {str(e)[:60]}")
+
+    # Step 1d: fallback — HPO annotation files
     if not phenotypes:
         _ensure_hpoa()
         _ensure_p2g()
