@@ -1399,7 +1399,12 @@ function renderDataDetail(source, data, gene) {
         ${selfHtml}${tableHtml}`;
     }
     if (source === "hpo_overlap") {
-      if (data.error) return `<p style="color:var(--danger);">${esc(data.error)}</p>`;
+      if (data.error) {
+        const stepsHtml = (data.steps||[]).length
+          ? `<details style="margin-top:8px;font-size:11px;"><summary style="cursor:pointer;color:var(--text-sub);">診断ログ</summary><pre style="white-space:pre-wrap;margin:4px 0;">${esc((data.steps||[]).join('\n'))}</pre></details>`
+          : "";
+        return `<p style="color:var(--danger);">${esc(data.error)}</p>${stepsHtml}`;
+      }
       const sc  = (data.overlap_score ?? 0).toFixed(3);
       const ov  = data.overlap_count ?? 0;
       const pp  = data.ppi_partner_count ?? 0;
