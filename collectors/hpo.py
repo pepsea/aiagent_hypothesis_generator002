@@ -148,6 +148,19 @@ def _ot_get_disease_phenotypes(mondo_id: str, size: int = 50) -> tuple[str, list
     return name, result
 
 
+def _normalise_xref(x: str) -> str:
+    """Normalise a dbXRef to the form phenotype.hpoa uses.
+
+    OT may return MIM:187300 or OMIM:187300; hpoa uses OMIM:187300.
+    Orphanet appears as ORPHANET:, ORPHA:, ORPHACODE: → ORPHA:
+    """
+    if re.match(r"^MIM:\d", x, re.I):
+        return "OMIM:" + x.split(":", 1)[1]
+    if re.match(r"^(ORPHANET|ORPHACODE):", x, re.I):
+        return "ORPHA:" + x.split(":", 1)[1]
+    return x
+
+
 def _ot_get_disease_xrefs(mondo_id: str) -> tuple[str, list[str]]:
     """Return (disease_name, [OMIM:xxx, ORPHA:xxx, ...]) — tries two query variants."""
     global _xref_query_index
@@ -161,14 +174,11 @@ def _ot_get_disease_xrefs(mondo_id: str) -> tuple[str, list[str]]:
             name = dis.get("name", "")
             xrefs = dis.get("dbXRefs") or []
             _xref_query_index = idx
-            # Keep OMIM + ORPHA/ORPHANET/ORPHACODE (normalised to ORPHA:)
             omim_orpha = []
             for x in xrefs:
-                if x.startswith("OMIM:") or x.startswith("MIM:"):
-                    omim_orpha.append(x)
-                elif re.match(r"^(ORPHANET|ORPHA|ORPHACODE):", x, re.I):
-                    num = x.split(":", 1)[1]
-                    omim_orpha.append(f"ORPHA:{num}")
+                norm = _normalise_xref(x)
+                if re.match(r"^(OMIM|ORPHA):", norm, re.I):
+                    omim_orpha.append(norm.upper())
             return name, omim_orpha
         except Exception:
             continue
@@ -306,21 +316,54 @@ def _hpoa_phenotypes_for_ids(disease_ids: list[str], max_phenos: int) -> list[di
     ]
 
 
+_STOPWORDS_NAME = {"the", "of", "to", "a", "an", "due", "by", "in", "for",
+                   "with", "type", "form", "and", "or"}
+
+
+def _name_words(text: str) -> set[str]:
+    """Split a disease name into significant words (skip stopwords and short tokens)."""
+    return {w for w in re.split(r"[\s,;/()]+", text.lower())
+            if len(w) > 2 and w not in _STOPWORDS_NAME}
+
+
 def _hpoa_find_ids_by_name(disease_name: str) -> list[str]:
-    """Find OMIM/ORPHA ids by exact disease name match in phenotype.hpoa."""
+    """Find OMIM/ORPHA ids by name matching in phenotype.hpoa.
+
+    Strategy (mirrors disease_gene_network01):
+      1. Exact case-insensitive match
+      2. Word-set match: wanted words all found in candidate name (any order)
+         This handles OMIM's inverted naming like "Telangiectasia, hereditary hemorrhagic"
+    """
     wanted = (disease_name or "").strip().lower()
     if not wanted:
         return []
-    # Exact match first
+    # Exact match
     hits = list(dict.fromkeys(_name2dis.get(wanted, [])))
-    # Partial match fallback
-    if not hits:
-        for name_key, ids in _name2dis.items():
-            if wanted in name_key:
-                hits.extend(ids)
-                if len(hits) >= 5:
-                    break
-    return hits[:5]
+    if hits:
+        return hits[:5]
+    # Word-set match — handles inverted/parenthetical OMIM names
+    wanted_words = _name_words(wanted)
+    if not wanted_words:
+        return hits[:5]
+    scored: list[tuple[float, str]] = []
+    for name_key, ids in _name2dis.items():
+        cand_words = _name_words(name_key)
+        if not cand_words:
+            continue
+        common = wanted_words & cand_words
+        ratio = len(common) / len(wanted_words)
+        if ratio >= 0.8:
+            for did in ids:
+                scored.append((ratio, did))
+    scored.sort(reverse=True)
+    seen: set[str] = set()
+    for _, did in scored:
+        if did not in seen:
+            seen.add(did)
+            hits.append(did)
+            if len(hits) >= 5:
+                break
+    return hits
 
 
 # ── HPO JAX API (last resort) ─────────────────────────────────────────────
