@@ -25,7 +25,6 @@ query($efoId: String!) {
     id
     name
     dbXRefs
-    synonyms { terms { term } }
   }
 }
 """
