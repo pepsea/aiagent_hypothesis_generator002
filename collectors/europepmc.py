@@ -332,8 +332,9 @@ def _score_papers(
     gene_syns_l   = [s.lower() for s in gene_syns[1:]]
     disease_lower_list = [d.lower() for d in disease_alts]
     disease_words = [w for w in disease.lower().split() if len(w) > 3]
-    # 長い疾患名: 70%以上の単語が揃えば一致とみなす（"classic"等の修飾語の有無を吸収）
-    _d_thresh = max(2, int(len(disease_words) * 0.7)) if len(disease_words) >= 4 else len(disease_words)
+    # 70%以上の単語が揃えば一致とみなす（CAH 略語や修飾語の有無を吸収）
+    # 1〜3語の短い疾患名は min 1語でも中核語が一致すれば通す
+    _d_thresh = max(1, int(len(disease_words) * 0.7)) if disease_words else 1
 
     def _d_match(text: str) -> bool:
         t = text.lower()
@@ -436,10 +437,17 @@ def search_literature(
     _add_epmc(_epmc_search(f'{gene} {disease}', page_size=100, max_pages=4))
 
     # Tier 1b: 短縮形クエリ（長い疾患名のとき有効）
-    if len(disease.split()) > 4:
+    if len(disease.split()) > 3:
         for sf in short_forms[:2]:
             if len(epmc_papers) < max_results * 3:
                 _add_epmc(_epmc_search(f'{gene} {sf}', page_size=80, max_pages=2))
+
+    # Tier 1c: 疾患の主要単語のみクエリ（略語・部分一致ヒットのため）
+    core_words = [w for w in disease.lower().split() if len(w) > 4 and w not in _STOPWORDS]
+    if core_words and len(epmc_papers) < max_results * 2:
+        core_q = f'{gene} {" ".join(core_words[:3])}'
+        if core_q.lower() != f'{gene} {disease}'.lower():
+            _add_epmc(_epmc_search(core_q, page_size=60, max_pages=2))
 
     # Tier 2: MeSH 別名でさらに補完
     if mesh_heading.lower() != disease.lower() and len(epmc_papers) < max_results * 2:
